@@ -1,5 +1,5 @@
 
-as_type :: inline (ti: *Type_Info) -> Type { return (cast(*Type)*ti).*; }
+as_type :: inline (ti: *Type_Info) -> Type { return (*ti).(*Type).*; }
 
 is_numeric_type :: (t: Type) -> bool {
     ti := cast(*Type_Info)t;
@@ -8,6 +8,18 @@ is_numeric_type :: (t: Type) -> bool {
 
 is_numeric_type :: (ti: *Type_Info) -> bool {
     return ti.type == .INTEGER || ti.type == .FLOAT;
+}
+
+enum_name_to_value :: (ti: *Type_Info_Enum, name: string) -> s64, bool {
+    assert(ti.type == .ENUM);
+    for ti.names  if name == it  return ti.values[it_index], true;
+    return 0, false;
+}
+
+enum_value_to_name :: (ti: *Type_Info_Enum, value: s64) -> string {
+    assert(ti.type == .ENUM);
+    for ti.values  if value == it  return ti.names[it_index];
+    return "";
 }
 
 // two types are considered equivalent if we can memcpy between the two types validly.
@@ -43,9 +55,6 @@ are_types_equivalent :: (ti1: *Type_Info, ti2: *Type_Info) -> bool {
 }
 
 are_structs_equivalent :: (ti1: *Type_Info_Struct, ti2: *Type_Info_Struct) -> bool {
-    assert(ti1.type == .STRUCT);
-    assert(ti2.type == .STRUCT);
-    
     if ti1.runtime_size  != ti2.runtime_size   return false;
     if ti1.members.count != ti2.members.count  return false;
     
@@ -59,3 +68,5 @@ are_structs_equivalent :: (ti1: *Type_Info_Struct, ti2: *Type_Info_Struct) -> bo
     
     return true;
 }
+
+

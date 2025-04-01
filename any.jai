@@ -163,8 +163,6 @@ negate_number :: inline (any: *Small_Any) -> bool {
     return false;
 }
 
-
-
 // ========== Any_Array ==========
 
 // While this is literally just an Any, it's helpful to have a distinct type with array-specific procedures.
