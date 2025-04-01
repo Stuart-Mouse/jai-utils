@@ -1,6 +1,6 @@
 
 /*
-    Utils
+    Stuart's Utils
 
     This module is just a random collection of utility functions that I find myself using quite often.
     Many of these are somewhat particular to the sort of dynamic type-info stuff done in gon, dyncall, data packer, and lead sheets.
@@ -8,6 +8,7 @@
 */
 
 
+#load "any.jai";
 #load "type_info.jai";
 #load "arrays.jai";
 
