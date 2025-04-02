@@ -102,16 +102,19 @@ recast_type_info :: (any: Any) -> Any, bool {
     return any, false;
 }
 
-// ========== Small_Array ==========
+// ========== Small_Any ==========
 
 // Small_Any is an Any, but we only use it for small values (<= 8 bytes), which get packed into the space of the value_pointer.
 // Can also be used as a standard Any if we wanted to, but I haven't written any such procedures for this use case yet.
 Small_Any :: struct {
     type: *Type_Info;
-    // union {
+    union {
+        using value_number:  Number_Union;
         value_bytes:   [8] u8;
-    //     value_pointer: *void;
-    // }
+        value_pointer: *void;
+    }
+    
+    from :: to_small_any;
 }
 
 to_any :: inline (any: *Small_Any) -> Any { 
@@ -125,12 +128,21 @@ get_as :: inline ($T: Type, any: Small_Any) -> T, bool #modify {
     return (*any.value_bytes).(*T).*, any.type == type_info(T);
 }
 
-make_small_any :: inline (value: $T) -> Small_Any #modify {
+to_small_any :: inline (value: $T) -> Small_Any #modify {
     return T.(*Type_Info).runtime_size <= 8;
 } { 
     // init with zero and then copy value just so we don't get some weird random bytes copied over somehow
-    ret := Small_Any.{ type_info(T), null }; 
+    ret := Small_Any.{ type_info(T) }; 
     (*ret.value_bytes).(*T).* = value;
+    return ret;
+}
+
+to_small_any :: inline (value: Any) -> Small_Any {
+    assert(value.type.runtime_size <= 8);
+    
+    // init with zero and then copy value just so we don't get some weird random bytes copied over somehow
+    ret := Small_Any.{ value.type }; 
+    memcpy(*ret.value_bytes, value.value_pointer, value.type.runtime_size);
     return ret;
 }
 
@@ -161,6 +173,38 @@ negate_number :: inline (any: *Small_Any) -> bool {
     
     log("Small_Any passed to negate_number was not a valid numeric type! (was %)", as_type(any.type));
     return false;
+}
+
+
+// Although it has uses outside the Small_Any, the purpose of the Number_Union is similar enough that I felt like putting it here.
+// NOTE: as_pointer is omitted because the compiler has special autism for pointers returned from #run. Just use a u64 for that I guess.
+Number_Union :: union {
+    as_u\8: u\8;
+    as_u16: u16;
+    as_u32: u32;
+    as_u64: u64;
+    as_s\8: s\8;
+    as_s16: s16;
+    as_s32: s32;
+    as_s64: s64;
+    as_float32: float32;
+    as_float64: float64;
+    
+    from :: to_number_union;
+}
+
+to_number_union :: inline (value: $T) -> Number_Union #modify {
+    ti := T.(*Type_Info);
+    return ti.type == .INTEGER || ti.type == .FLOAT || ti.type == .ENUM  || ti.type == .POINTER;
+} {
+    result: Number_Union;
+    memcpy(*result, *value, size_of(T));
+    return result;
+}
+
+// NOTE: just a simple bitwise comparison, does consider actual stored type
+operator == :: (a: Number_Union, b: Number_Union) -> bool {
+    return (*a).(*u64).* == (*b).(*u64).*;
 }
 
 // ========== Any_Array ==========
@@ -196,8 +240,3 @@ for_expansion :: (array: Any_Array, body: Code, for_flags: For_Flags) {
         it.value_pointer += array.element_type.runtime_size;
     }
 }
-
-#scope_file
-
-#import "Reflection"; // for get_array_count_and_data
-

@@ -29,6 +29,8 @@ set_bit :: (using bit_set: *Int_Bit_Set, set_bits: ..int) -> bool {
     return true;
 }
 
+
+
 Enum_Bit_Set :: struct($T: Type) {
     MIN :: #run -> int { 
         min := type_info(T).values[0]; 
@@ -43,6 +45,8 @@ Enum_Bit_Set :: struct($T: Type) {
     MASK_SIZE :: ((MAX - MIN + 1) / 8) + cast(int) ((MAX - MIN + 1) % 8 != 0);
 
     mask: [MASK_SIZE] u8;
+    
+    from :: #procedure_of_call make_bit_set((0).(T));
 }
 
 check_bit :: (using bit_set: Enum_Bit_Set, bit: bit_set.T) -> bool {
@@ -73,8 +77,8 @@ set_bit :: (using bit_set: *Enum_Bit_Set, bit: bit_set.T) -> bool {
     mask[byte_index] |= bit_index;
 }
 
-set_bits :: (using bit_set: *Enum_Bit_Set, set_bits: ..bit_set.T) -> bool {
-    for set_bits {
+set_bits :: (using bit_set: *Enum_Bit_Set, bits_to_set: ..bit_set.T) -> bool {
+    for bits_to_set {
         if it < MIN || it > MAX { 
             log("Failed to set bit %", it);
             return false;
@@ -86,12 +90,12 @@ set_bits :: (using bit_set: *Enum_Bit_Set, set_bits: ..bit_set.T) -> bool {
     return true;
 }
 
-make_bit_set :: (set_bits: ..$T) -> Enum_Bit_Set(T) #modify {
+make_bit_set :: (bits_to_set: ..$T) -> Enum_Bit_Set(T) #modify {
     ti := cast(*Type_Info_Enum) T;
     return ti.type == .ENUM && !(ti.enum_type_flags & .FLAGS);
 } {
     set: Enum_Bit_Set(T);
-    for set_bits {
+    for bits_to_set {
         if it >= set.MIN && it <= set.MAX { 
             byte_index := (it - set.MIN) / 8;
             bit_index  := cast(u8) 1 << ((it - set.MIN) % 8);

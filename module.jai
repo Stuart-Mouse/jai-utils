@@ -35,3 +35,42 @@ defer_restore :: (value: *$T) #expand {
     value_before := value.*;
     `defer value.* = value_before;
 }
+
+offset_of :: ($T: Type, ident: Code) -> s64 #expand {
+    t: T = ---;
+    return cast(*void) (*t.#insert ident) - cast(*void) *t;
+}
+
+// ========== Math-ish ==========
+
+// I don't really wanna put too much math stuff in this module since that should probably get its own separate module,
+// but I'm including a couple simple things that I could see myself using quite often.
+
+delerp :: (a: float64, b: float64, val: float64) -> float64 {
+    high := max(a, b);
+    low  := min(a, b);
+    return (val - low) / (high - low);
+}
+
+modulo :: (n: $T, d: T) -> T #modify { return T.(*Type_Info).type == .INTEGER; } {
+    return n % d + ifx n < 0 then d else 0;
+}
+
+// copied from Hash_Table module...
+next_power_of_two :: inline (x : int) -> int {
+    // @Speed: This could certainly be faster.
+    // There is probably something in Hacker's Delight for this.
+    assert(x != 0);
+    p := 1;
+    while x > p p += p;
+    return p;
+}
+
+
+
+
+#scope_module
+
+#import "Reflection"; // for get_array_count_and_data
+#import "Basic";
+

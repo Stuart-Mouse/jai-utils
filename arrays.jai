@@ -87,3 +87,13 @@ array_add_any_at_index :: (array_any: Any, index: int) -> Any {
     return Any.{ ti_array.element_type, raw_array.data + (index * ti_array.element_type.runtime_size) };
 }
 
+
+// this may be kind risky but oh well
+make_resizable :: (array: [] $T, allocator := context.allocator) -> [..] T {
+    ret: [..] T;
+    ret.data      = array.data;
+    ret.count     = array.count;
+    ret.allocated = array.count;
+    ret.allocator = allocator;
+    return ret;
+}
