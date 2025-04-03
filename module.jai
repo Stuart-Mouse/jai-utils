@@ -36,9 +36,14 @@ defer_restore :: (value: *$T) #expand {
     `defer value.* = value_before;
 }
 
-offset_of :: ($T: Type, ident: Code) -> s64 #expand {
-    t: T = ---;
-    return cast(*void) (*t.#insert ident) - cast(*void) *t;
+offset_of :: inline ($T: Type, $member: string) -> int {
+    return #run -> int {
+        for type_info(T).members {
+            if it.name == member return it.offset_in_bytes;
+        }
+        assert(false, "Type '%' does not have member '%'", T, member);
+        return -1;
+    };
 }
 
 unreachable :: inline (loc := #caller_location) {

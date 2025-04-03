@@ -45,31 +45,20 @@ array_reserve_nonpoly :: (array: *Resizable_Array, desired_items: s64, elem_size
     array.allocated = desired_items;
 }
 
-array_add_any :: inline (array: Any) -> Any, bool {
-    // verify that array is in fact an array
-    if array.type.type != .ARRAY {
-        log("Error: Array any is not an array!\n");
-        return Any.{}, false;
-    }
-    ti_array := array.type.(*Type_Info_Array);
+array_add_any :: inline (any: Any) -> Any {
+    assert(array.type.type == .ARRAY);
     
-    any := array_add_any_nocheck(xx array.value_pointer, ti_array.element_type);
-    return any, true;
-}
-
-// Technically, this proc will never return an invalid value, since the only possibe failure is failing to allocate memory, in which case we just crash.
-array_add_any_nocheck :: (array: *Resizable_Array, elem_type: *Type_Info) -> Any {
+    ti_array := array.type.(*Type_Info_Array);
+    array    := array.value_pointer.(*Resizable_Array);
+    
     // maybe grow array
     if array.count >= array.allocated {
-        reserve := 2 * array.allocated;
-        if reserve < 8  reserve = 8;
-        array_reserve_nonpoly(xx array, reserve, elem_type.runtime_size);
+        reserve := max(2 * array.allocated, 8);
+        array_reserve_nonpoly(xx array, reserve, ti_array.element_type.runtime_size);
     }
-    
-    ret := Any.{ elem_type, array.data + (array.count * elem_type.runtime_size) };
-    array.count += 1;
-    
-    return ret;
+     
+    defer array.count += 1; // run after return
+    return Any.{ elem_type, array.data + (array.count * elem_type.runtime_size) };
 }
 
 array_add_any_at_index :: (array_any: Any, index: int) -> Any {

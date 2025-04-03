@@ -19,10 +19,9 @@ New_Any :: inline (ti: *Type_Info, initialized := true) -> Any {
 // Dynamic_New was removed from the included modules for some reason, so I am including it here.
 // Capitalized for the sole purpose of matching naming of New().
 Dynamic_New :: (type: *Type_Info, initialized := true) -> *void {
-    size := type.runtime_size;
-    if size < 0 return null;   // Maybe they gave us a weird polymorphic type for some reason.
+    if type.runtime_size < 0 return null;   // Maybe they gave us a weird polymorphic type for some reason.
 
-    memory := alloc(size);
+    memory := alloc(type.runtime_size);
     if initialized  initialize_any(Any.{ type, memory });
     return memory;
 }
@@ -84,23 +83,6 @@ deref_any_pointer :: (any: Any) -> Any, bool {
     return any, false;
 }
 
-recast_type_info :: (any: Any) -> Any, bool {
-    if any.type == type_info(*Type_Info) {
-        ti := any.value_pointer.(**Type_Info).*;
-        if ti.type == {
-            case .INTEGER;      return Any.{ type_info(*Type_Info_Integer),   any.value_pointer }, true;
-            case .FLOAT;        return Any.{ type_info(*Type_Info_Float),     any.value_pointer }, true;
-            case .STRING;       return Any.{ type_info(*Type_Info_String),    any.value_pointer }, true;
-            case .POINTER;      return Any.{ type_info(*Type_Info_Pointer),   any.value_pointer }, true;
-            case .PROCEDURE;    return Any.{ type_info(*Type_Info_Procedure), any.value_pointer }, true;
-            case .STRUCT;       return Any.{ type_info(*Type_Info_Struct),    any.value_pointer }, true;
-            case .ARRAY;        return Any.{ type_info(*Type_Info_Array),     any.value_pointer }, true;
-            case .ENUM;         return Any.{ type_info(*Type_Info_Enum),      any.value_pointer }, true;
-            case .VARIANT;      return Any.{ type_info(*Type_Info_Variant),   any.value_pointer }, true;
-        }
-    }
-    return any, false;
-}
 
 // ========== Small_Any ==========
 
@@ -214,11 +196,13 @@ operator == :: (a: Number_Union, b: Number_Union) -> bool {
 Any_Array :: struct {
     type: *Type_Info_Array;
     value_pointer: *void;
+    
+    from :: make_any_array;
 }
 
 make_any_array :: (any: Any) -> Any_Array {
     assert(any.type.type == .ARRAY);
-    return .{ any.type, any.value_pointer };
+    return .{ xx any.type, any.value_pointer };
 }
 
 get_count_and_data :: inline (array: Any_Array) -> (int, *void) {
