@@ -3,12 +3,11 @@
 
 as_type :: inline (ti: *Type_Info) -> Type { return (*ti).(*Type).*; }
 
-is_numeric_type :: (t: Type) -> bool {
-    ti := cast(*Type_Info)t;
-    return ti.type == .INTEGER || ti.type == .FLOAT;
+is_numeric_type :: inline (T: Type) -> bool {
+    return is_numeric_type(T.(*Type_Info));
 }
 
-is_numeric_type :: (ti: *Type_Info) -> bool {
+is_numeric_type :: inline (ti: *Type_Info) -> bool {
     return ti.type == .INTEGER || ti.type == .FLOAT;
 }
 

@@ -83,6 +83,29 @@ deref_any_pointer :: (any: Any) -> Any, bool {
     return any, false;
 }
 
+// ========== Any_Proc ==========
+
+// While this may seem totally redundant with regular Any at first glance, 
+//     note that the pointer here points directly to the procedure, 
+//     whereas in a normal Any, we actually get a pointer to a pointer to a procedure.
+// The removal of this extra indirection is really important if you want to store or pass around a procedure with its type info.
+// For example, I use this in Lead Sheets for all external procedures that are passed into the script's context.
+Any_Proc :: struct {
+    type:       *Type_Info_Procedure;
+    pointer:    *void;
+    
+    from :: to_any_proc;
+}
+
+to_any_proc :: inline (any: Any) -> Any_Proc { 
+    assert(any.type.type == .PROCEDURE);
+    return .{ xx any.type, any.value_pointer.(**void).* };
+}
+
+to_any :: inline (any: *Any_Proc) -> Any {
+    return .{ any.type, *any.pointer };
+}
+
 
 // ========== Small_Any ==========
 
