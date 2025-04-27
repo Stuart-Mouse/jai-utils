@@ -8,7 +8,7 @@ is_numeric_type :: inline (T: Type) -> bool {
 }
 
 is_numeric_type :: inline (ti: *Type_Info) -> bool {
-    return ti.type == .INTEGER || ti.type == .FLOAT;
+    return ti && (ti.type == .INTEGER || ti.type == .FLOAT);
 }
 
 // two types are considered equivalent if we can memcpy between the two types validly.

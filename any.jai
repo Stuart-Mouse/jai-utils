@@ -8,6 +8,9 @@ Many_Any :: struct {
     count: s64;
 }
 
+Null_Any :: Any.{};
+Void_Any :: Any.{ type = type_info(void) };
+
 // ========== Allocation ==========
 
 // A more convenient version of Dynamic_New which gives you back an Any
@@ -19,7 +22,7 @@ New_Any :: inline (ti: *Type_Info, initialized := true) -> Any {
 // Dynamic_New was removed from the included modules for some reason, so I am including it here.
 // Capitalized for the sole purpose of matching naming of New().
 Dynamic_New :: (type: *Type_Info, initialized := true) -> *void {
-    if type.runtime_size < 0 return null;   // Maybe they gave us a weird polymorphic type for some reason.
+    if type.runtime_size < 0  return null;   // Maybe they gave us a weird polymorphic type for some reason.
 
     memory := alloc(type.runtime_size);
     if initialized  initialize_any(Any.{ type, memory });
@@ -81,6 +84,11 @@ deref_any_pointer :: (any: Any) -> Any, bool {
         }, true;
     }
     return any, false;
+}
+
+memcpy_any :: (dst: Any, src: Any) {
+    assert(dst.type == src.type, "% != %", as_type(dst.type), as_type(src.type));
+    memcpy(dst.value_pointer, src.value_pointer, src.type.runtime_size);
 }
 
 // ========== Any_Proc ==========

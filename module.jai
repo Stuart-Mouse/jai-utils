@@ -29,6 +29,10 @@ all_bytes_are_zero :: (data: *void, count: int) -> bool {
     return true;
 }
 
+is_valid_index :: inline (array: []$T, index: int) -> bool {
+    return index >= 0 && index < array.count;
+}
+
 // restores the value of a variable at this time upon scope exit
 // kind of like push_allocator
 defer_restore :: (value: *$T) #expand {
@@ -49,6 +53,18 @@ offset_of :: inline ($T: Type, $member: string) -> int {
 unreachable :: inline (loc := #caller_location) {
     assert(false, "unreachable at %: line %, column %", loc.fully_pathed_filename, loc.line_number, loc.character_number);
 }
+
+// just tprint but with automatic null-termination, and returning a *u8
+tprintc :: (format_string: string, args: .. Any) -> *u8 #must {
+    builder: String_Builder;
+    builder.allocator = temp;
+
+    print_to_builder(*builder, format_string, ..args);
+    append(*builder, "\0");
+
+    return builder_to_string(*builder,, temp).data;
+} @PrintLike
+
 
 // ========== Math-ish ==========
 
