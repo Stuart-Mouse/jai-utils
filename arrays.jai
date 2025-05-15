@@ -63,7 +63,7 @@ array_add_any :: inline (any: Any) -> Any {
 
 array_add_any_at_index :: (array_any: Any, index: int) -> Any {
     if array_any.value_pointer == null || array_any.type.type != .ARRAY 
-        then return false;
+        return Any.{};
     
     ti_array  := array_any.type.(*Type_Info_Array);
     raw_array := array_any.value_pointer.(*Resizable_Array);
