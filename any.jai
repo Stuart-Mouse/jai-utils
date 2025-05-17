@@ -66,7 +66,7 @@ get_member_any :: (parent_ptr: *void, member_ti: *Type_Info_Struct_Member) -> An
     return Any.{ member_ti.type, value_pointer };
 }
 
-unwrap_variant_type :: (any: Any) -> Any {
+unwrap_variant_type :: (any: Any) -> Any, bool {
     if any.type.type == .VARIANT {
         return Any.{
             any.type.(*Type_Info_Variant).variant_of,
@@ -76,7 +76,7 @@ unwrap_variant_type :: (any: Any) -> Any {
     return any, false;
 }
 
-deref_any_pointer :: (any: Any) -> Any, bool {
+dereference_any_pointer :: (any: Any) -> Any, bool {
     if any.type.type == .POINTER {
         return Any.{
             any.type.(*Type_Info_Pointer).pointer_to,
