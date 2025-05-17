@@ -93,11 +93,14 @@ memcpy_any :: (dst: Any, src: Any) {
 
 // ========== Any_Proc ==========
 
-// While this may seem totally redundant with regular Any at first glance, 
-//     note that the pointer here points directly to the procedure, 
-//     whereas in a normal Any, we actually get a pointer to a pointer to a procedure.
-// The removal of this extra indirection is really important if you want to store or pass around a procedure with its type info.
-// For example, I use this in Lead Sheets for all external procedures that are passed into the script's context.
+/*
+    While this may seem totally redundant with regular Any at first glance, 
+        note that the pointer here points directly to the procedure, 
+        whereas in a normal Any, we actually get a pointer to a pointer to a procedure.
+    The removal of this extra indirection is really important if you want to store or pass around a procedure with its type info.
+    For example, I use this in Lead Sheets for all external procedures that are passed into the script's context.
+*/
+
 Any_Proc :: struct {
     type:       *Type_Info_Procedure;
     pointer:    *void;
@@ -117,8 +120,11 @@ to_any :: inline (any: *Any_Proc) -> Any {
 
 // ========== Small_Any ==========
 
-// Small_Any is an Any, but we only use it for small values (<= 8 bytes), which get packed into the space of the value_pointer.
-// Can also be used as a standard Any if we wanted to, but I haven't written any such procedures for this use case yet.
+/*
+    Small_Any is an Any, but we only use it for small values (<= 8 bytes), which get packed into the space of the value_pointer.
+    Can also be used as a standard Any if we wanted to, but I haven't written any such procedures for this use case yet.
+*/
+
 Small_Any :: struct {
     type: *Type_Info;
     union {
@@ -144,7 +150,6 @@ get_as :: inline ($T: Type, any: Small_Any) -> T, bool #modify {
 to_small_any :: inline (value: $T) -> Small_Any #modify {
     return T.(*Type_Info).runtime_size <= 8;
 } { 
-    // init with zero and then copy value just so we don't get some weird random bytes copied over somehow
     ret := Small_Any.{ type_info(T) }; 
     (*ret.value_bytes).(*T).* = value;
     return ret;
@@ -153,7 +158,6 @@ to_small_any :: inline (value: $T) -> Small_Any #modify {
 to_small_any :: inline (value: Any) -> Small_Any {
     assert(value.type.runtime_size <= 8);
     
-    // init with zero and then copy value just so we don't get some weird random bytes copied over somehow
     ret := Small_Any.{ value.type }; 
     memcpy(*ret.value_bytes, value.value_pointer, value.type.runtime_size);
     return ret;
