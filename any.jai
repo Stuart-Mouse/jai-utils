@@ -11,6 +11,14 @@ Many_Any :: struct {
 Null_Any :: Any.{};
 Void_Any :: Any.{ type = type_info(void) };
 
+
+
+// ========== General ==========
+
+operator ! :: (any: Any) {
+    return any.type == null || any.value_pointer == null;
+}
+
 // ========== Allocation ==========
 
 // A more convenient version of Dynamic_New which gives you back an Any
@@ -43,27 +51,31 @@ initialize_any :: (any: Any) {
 
 // ========== Reflection ==========
 
-get_member_any :: (parent: Any, member_name: string) -> Any {
-    assert(parent.type.type == .STRUCT);
+get_member_any :: (any_struct: Any, member_name: string) -> Any {
+    assert(any_struct.type.type == .STRUCT);
+    ti_struct := any_struct.type.(*Type_Info_Struct);
     
-    parent_ti := cast(*Type_Info_Struct) parent.type;
-    
-    member: *Type_Info_Struct_Member;
-    for *parent_ti.members {
+    for *ti_struct.members {
         if it.name == member_name {
-            member = it;
-            break;
+            return get_member_any(any_struct.value_pointer, it);
         }
     }
-    if !member  return Any.{};
-    
-    return get_member_any(parent.value_pointer, member);
+    return Null_Any;
 }
 
-get_member_any :: (parent_ptr: *void, member_ti: *Type_Info_Struct_Member) -> Any {
-    if !member_ti  return Any.{};
-    value_pointer := parent_ptr + member_ti.offset_in_bytes;
-    return Any.{ member_ti.type, value_pointer };
+get_member_any :: (struct_pointer: *void, member_info: *Type_Info_Struct_Member) -> Any {
+    return Any.{ member_info.type, struct_pointer + member_info.offset_in_bytes };
+}
+
+// also provides 'it_info' iterator pointing to Type_Info_Struct_Member
+iterate_struct_members :: (any: Any, body: Code) {
+    assert(any.type.type == .STRUCT);
+    ti_struct := any.type.(*Type_Info_Struct);
+    
+    for `it_info, `it_index: ti_struct.members {
+        `it := Any.{ it_info.type, any.value_pointer + it_info.offset_in_bytes };
+        #insert body;
+    }
 }
 
 unwrap_variant_type :: (any: Any) -> Any, bool {
@@ -245,10 +257,12 @@ get_count_and_data :: inline (array: Any_Array) -> (int, *void) {
     return count, data;
 }
 
+operator [] :: get_index;
+
 get_index :: inline (array: Any_Array, index: int) -> Any {
     count, data := get_count_and_data(array);
     assert(index >= 0 && index < count);
-    return Any.{ array.element_type, data + (array.element_type.runtime_size * index) };
+    return Any.{ array.type.element_type, data + (array.type.element_type.runtime_size * index) };
 }
 
 for_expansion :: (array: Any_Array, body: Code, for_flags: For_Flags) {
@@ -259,3 +273,4 @@ for_expansion :: (array: Any_Array, body: Code, for_flags: For_Flags) {
         it.value_pointer += array.element_type.runtime_size;
     }
 }
+
