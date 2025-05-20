@@ -11,6 +11,7 @@
 #load "any.jai";
 #load "type_info.jai";
 #load "arrays.jai";
+#load "scanner.jai";
 
 
 // ========== General Purpose ==========
@@ -31,6 +32,12 @@ all_bytes_are_zero :: (data: *void, count: int) -> bool {
 
 is_valid_index :: inline (array: []$T, index: int) -> bool {
     return index >= 0 && index < array.count;
+}
+
+is_within_range :: inline (value: $T, low: T, high: T) -> bool #modify {
+    return is_numeric_type(T);
+} {
+    return value >= low && value <= high;
 }
 
 // restores the value of a variable at this time upon scope exit
