@@ -137,4 +137,5 @@ get_pool_allocator :: (pool: *Flat_Pool) -> Allocator {
 #import "Reflection"; // for get_array_count_and_data
 #import "Basic";
 #import "Flat_Pool";
-
+#import "String";
+#import "Math";

@@ -130,58 +130,57 @@ to_any :: inline (any: *Any_Proc) -> Any {
 }
 
 
-// ========== Small_Any ==========
+// ========== Any_Number ==========
 
 /*
-    Small_Any is an Any, but we only use it for small values (<= 8 bytes), which get packed into the space of the value_pointer.
-    Can also be used as a standard Any if we wanted to, but I haven't written any such procedures for this use case yet.
+    Any_Number is an Any, but we only use it for small values (<= 8 bytes), which get packed into the space of the value_pointer.
+    While it's called 'Any_Number', it's also perfectly fine to use for pointers. 
+    In fact I used to have value_pointer as a member of the union, but that doesn't always play nice at compile-time.
+    But, you can still stick pointers in there and get them out all the same with to_any_number and get_as.
+    Could also be used as a standard Any if we wanted to, but I haven't written any such procedures for this use case yet.
 */
 
-Small_Any :: struct {
-    type: *Type_Info;
-    union {
-        using value_number:  Number_Union;
-        value_bytes:   [8] u8;
-        value_pointer: *void;
-    }
+Any_Number :: struct {
+    type:  *Type_Info;
+    using value:  Number_Union;
     
-    from :: to_small_any;
+    from :: to_any_number;
 }
 
-to_any :: inline (any: *Small_Any) -> Any { 
-    return Any.{ any.type, *any.value_bytes }; 
+to_any :: inline (any: *Any_Number) -> Any { 
+    return Any.{ any.type, *any.value }; 
 };
 
-get_as :: inline ($T: Type, any: Small_Any) -> T, bool #modify {
+get_as :: inline ($T: Type, any: Any_Number) -> T, bool #modify {
     return T.(*Type_Info).runtime_size <= 8;
 } {
     // TODO: add case for reading through value_pointer later, if we decide to do that sort of thing.
-    return (*any.value_bytes).(*T).*, any.type == type_info(T);
+    return (*any.value).(*T).*, any.type == type_info(T);
 }
 
-to_small_any :: inline (value: $T) -> Small_Any #modify {
+to_any_number :: inline (value: $T) -> Any_Number #modify {
     return T.(*Type_Info).runtime_size <= 8;
 } { 
-    ret := Small_Any.{ type_info(T) }; 
-    (*ret.value_bytes).(*T).* = value;
+    ret := Any_Number.{ type_info(T) }; 
+    (*ret.value).(*T).* = value;
     return ret;
 }
 
-to_small_any :: inline (value: Any) -> Small_Any {
+to_any_number :: inline (value: Any) -> Any_Number {
     assert(value.type.runtime_size <= 8);
     
-    ret := Small_Any.{ value.type }; 
-    memcpy(*ret.value_bytes, value.value_pointer, value.type.runtime_size);
+    ret := Any_Number.{ type = value.type }; 
+    memcpy(*ret.value, value.value_pointer, value.type.runtime_size);
     return ret;
 }
 
 // TODO: maybe we want to move this to some separate file for dynamic math stuff...
-negate_number :: inline (any: *Small_Any) -> bool {
+negate_number :: inline (any: *Any_Number) -> bool {
     if any.type.type == {
       case .INTEGER;
         ti_integer := any.type.(*Type_Info_Integer);
         if ti_integer.signed == false {
-            log("Small_Any passed to negate_number was an unsigned integer type! (was %)", as_type(any.type));
+            log("Any_Number passed to negate_number was an unsigned integer type! (was %)", as_type(any.type));
             return false;
         }
         if any.type.runtime_size == {
@@ -200,24 +199,25 @@ negate_number :: inline (any: *Small_Any) -> bool {
         return true;
     }
     
-    log("Small_Any passed to negate_number was not a valid numeric type! (was %)", as_type(any.type));
+    log("Any_Number passed to negate_number was not a valid numeric type! (was %)", as_type(any.type));
     return false;
 }
 
 
-// Although it has uses outside the Small_Any, the purpose of the Number_Union is similar enough that I felt like putting it here.
+// Although it has uses outside the Any_Number, the purpose of the Number_Union is similar enough that I felt like putting it here.
 // NOTE: as_pointer is omitted because the compiler has special autism for pointers returned from #run. Just use a u64 for that I guess.
 Number_Union :: union {
-    as_u\8: u\8;
-    as_u16: u16;
-    as_u32: u32;
-    as_u64: u64;
-    as_s\8: s\8;
-    as_s16: s16;
-    as_s32: s32;
-    as_s64: s64;
+    as_u\8:     u\8;
+    as_u16:     u16;
+    as_u32:     u32;
+    as_u64:     u64;
+    as_s\8:     s\8;
+    as_s16:     s16;
+    as_s32:     s32;
+    as_s64:     s64;
     as_float32: float32;
     as_float64: float64;
+    as_bytes:   [8] u8;
     
     from :: to_number_union;
 }

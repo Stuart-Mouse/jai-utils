@@ -92,139 +92,6 @@ try_lex_number :: (using scanner: *Scanner) -> string {
     return "";
 }
 
-// modified version of string_to_int from Simple_String.jai
-// basically just hardcoded for u64, since we can always convert from there down to any other int type
-// honestly not sure why one would want that version to be polymorphic in the first place?
-string_to_u64 :: (text: string, base: u64 = 10) -> result: u64, success: bool, remainder: string {
-    assert(base == 16 || base <= 10);
-    if !text  return 0, false, "";
-    
-    s := text;
-    sum: u64 = 0;
-    cursor := 0;
-    
-    if base == 16 {
-        while cursor < s.count {
-            defer cursor += 1;
-            c := s[cursor];
-            if c == #char "_"  continue;
-
-            digit: u8 = ---;
-            if is_digit(c) {
-                digit = c - #char "0";
-            } else if (c >= #char "a") && (c <= #char "f") {
-                digit = c - #char "a" + 10;
-            } else if (c >= #char "A") && (c <= #char "F") {
-                digit = c - #char "A" + 10;
-            } else {
-                break;
-            }
-            
-            sum *= base;
-            sum += digit.(u64);
-        }
-    } else {
-        while cursor < s.count {
-            defer cursor += 1;
-            c := s[cursor];
-            if c == #char "_"  continue;
-
-            if !is_digit(c) break;
-            
-            digit := c - #char "0";
-            if digit >= base break;
-            
-            prev := sum;
-            
-            #no_aoc {
-                sum *= base; 
-                sum += digit.(u64);
-            }
-            
-            if sum < prev {
-                log("Error: arithmetic overflow in string_to_u64!");
-                return 0, false, "";
-            }
-        }
-    }
-    
-    success := (cursor != 0);
-    advance(*s, cursor);    // shouldn't this be illegal? modifying an immutable argument?
-    
-    return sum, success, s;
-}
-
-
-/*
-    TODO: support octal numbers
-    TODO: support hexadecimal floats
-*/
-parse_number :: (s: string) -> result: Small_Any, success: bool, remainder: string {    
-    if !s {
-        log("Error: empty string in parse_number!");
-        return .{}, false, "";
-    }
-    
-    // if we've got a decimal point in there, we will prefer float64
-    // else we parse and store it as an integer below
-    if contains(s, #char ".") {
-        val, ok, remainder := string_to_float64(s);
-        if !ok  log("Error: failed to parse float from '%'.", s);
-        return Small_Any.from(val), ok, remainder;
-    }
-    
-    str := s;
-    
-    negate := false;
-    if str && str[0] == #char "-" {
-        negate = true;
-        advance(*str, 1);
-    }
-    
-    base: u64 = 10;
-    // if number begins with 0b, 0h, 0x, etc..
-    if str[0] == #char "0" && str.count >= 2 {
-        if str[1] == {
-          case #char "b"; 
-            advance(*str, 2);
-            base = 2;
-            
-          case #char "x"; 
-            advance(*str, 2);
-            base = 16;
-            
-          // case #char "h";
-          //   advance(*str, 2);
-          //   base = 16;
-          //   is_hex_float = true;
-        }
-    }
-    
-    u64_value, ok, remainder := string_to_u64(str, base);
-    if !ok {
-        log("Error: failed to parse integer from '%'.", s);
-        return .{}, false, remainder;
-    }
-    
-    if negate {
-        if u64_value > S64_MAX.(u64) + 1 {
-            log("Error: cannot negate parsed u64 value, as it would be out of range for s64.");
-            return .{}, false, remainder;
-        }
-        s64_value := -(u64_value-1).(s64) - 1;
-        return Small_Any.from(s64_value), true, remainder;
-    } else {
-        // use s64 unless u64 value would be out of range
-        ret := Small_Any.from(u64_value);
-        if u64_value <= S64_MAX.(u64) then ret.type = type_info(s64);
-        return ret, true, remainder;
-    }
-}
-
-#import "String";
-#import "Math";
-
-
 parse_escape_sequence :: (str: string) -> value: string, success: bool, sequence_length: int {
     if str.count < 2 || str[0] != #char "\\" {
         return "", false, 0;
@@ -287,3 +154,156 @@ parse_escape_sequence :: (scanner: *Scanner) -> value: string, success: bool {
     return value, ok;
 }
 
+
+// ========== Number Parsing ==========
+
+/*
+    string_to_u64 and parse_number are primarily written for use with Convert.jai, 
+    but I don't really want to put them in that module right now since they're just a little too general.
+    At the very least, they probably won't stay in this file forever...
+    
+    Instead of using a polymorphic procedure like string_to_int, we parse to u64 as our fundamental integer type 
+    and then do whatever we need to do to downcast in the calling procedure. I think this approach makes 
+    more sense in this module since the dst type for the integer is probably not statically known anyhow.
+        
+    Note that we do not have any special procedures in this module for string_to_float, 
+    since there's no point in not just using what's provided in string_to_float.jai.
+    
+    See parse_number below this to see how this procedure is used in context, and how we then downcast to the other integer types.
+*/
+
+
+string_to_u64 :: (text: string, base: u64 = 10) -> result: u64, success: bool, remainder: string {
+    assert(base == 16 || base <= 10);
+    if !text  return 0, false, "";
+    
+    s := text;
+    sum: u64 = 0;
+    cursor := 0;
+    
+    if base == 16 {
+        while cursor < s.count {
+            defer cursor += 1;
+            c := s[cursor];
+            if c == #char "_"  continue;
+
+            digit: u8 = ---;
+            if is_digit(c) {
+                digit = c - #char "0";
+            } else if (c >= #char "a") && (c <= #char "f") {
+                digit = c - #char "a" + 10;
+            } else if (c >= #char "A") && (c <= #char "F") {
+                digit = c - #char "A" + 10;
+            } else {
+                break;
+            }
+            
+            sum *= base;
+            sum += digit.(u64);
+        }
+    } else {
+        while cursor < s.count {
+            defer cursor += 1;
+            c := s[cursor];
+            if c == #char "_"  continue;
+
+            if !is_digit(c) break;
+            
+            digit := c - #char "0";
+            if digit >= base break;
+            
+            prev := sum;
+            
+            #no_aoc {
+                sum *= base; 
+                sum += digit.(u64);
+            }
+            
+            if sum < prev {
+                log("Error: arithmetic overflow in string_to_u64!");
+                return 0, false, "";
+            }
+        }
+    }
+    
+    success := (cursor != 0);
+    advance(*s, cursor);
+    
+    return sum, success, s;
+}
+
+
+/*
+    The result of parse_number will always be either float64, u64, or s64
+        float64 is used if the input string contains a dot
+        s64 will be used as the default integer type
+        u64 will be used only if the u64 value parsed by string_to_u64 would not fit inside of an s64
+    
+    Note to self: 
+        Convert.jai has its own more constrained version (string_to_int) and a more general use case set_value_from_string procedure.
+        I see this procedure as being most useful for parsers like GON or Lead Sheets, where you really need the Any_Number as an intermediate value for an expented period of time.
+        
+    TODO: support octal numbers
+    TODO: support hexadecimal floats
+*/
+parse_number :: (s: string) -> result: Any_Number, success: bool, remainder: string {    
+    if !s {
+        log("Error: empty string in parse_number!");
+        return .{}, false, "";
+    }
+    
+    // if we've got a decimal point in there, we will prefer float64
+    // else we parse and store it as an integer below
+    if contains(s, #char ".") {
+        val, ok, remainder := string_to_float64(s);
+        if !ok  log("Error: failed to parse float from '%'.", s);
+        return Any_Number.from(val), ok, remainder;
+    }
+    
+    str := s;
+    
+    negate := false;
+    if str && str[0] == #char "-" {
+        negate = true;
+        advance(*str, 1);
+    }
+    
+    base: u64 = 10;
+    if str[0] == #char "0" && str.count >= 2 {
+        if str[1] == {
+          case #char "b"; 
+            advance(*str, 2);
+            base = 2;
+            
+          case #char "x"; 
+            advance(*str, 2);
+            base = 16;
+            
+          // case #char "h";
+          //   advance(*str, 2);
+          //   base = 16;
+          //   is_hex_float = true;
+          //   // verify that input string is exactly 4, 8, or 16 characters
+        }
+    }
+    
+    u64_value, ok, remainder := string_to_u64(str, base);
+    if !ok {
+        log("Error: failed to parse integer from '%'.", s);
+        return .{}, false, remainder;
+    }
+    
+    if negate {
+        if u64_value > S64_MAX.(u64) + 1 {
+            log("Error: cannot negate parsed u64 value, as it would be out of range for s64.");
+            return .{}, false, remainder;
+        }
+        s64_value := -(u64_value-1).(s64) - 1;
+        return Any_Number.from(s64_value), true, remainder;
+    } else {
+        // use s64 unless u64 value would be out of range
+        ret := Any_Number.from(u64_value);
+        if u64_value <= S64_MAX.(u64) then ret.type = type_info(s64);
+        return ret, true, remainder;
+    }
+}
