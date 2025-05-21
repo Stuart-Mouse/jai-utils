@@ -92,18 +92,14 @@ try_lex_number :: (using scanner: *Scanner) -> string {
     return "";
 }
 
-
-// TODO: maybe permit whitespace in number string ?
-//       we don't permit whitespace in lexing number literals, of course, but perhaps it would be more acceptable here?
-//       the only reason I'm really considering allowing whitespace is because Jai's default string_to_int does, but maybe it shouldn't 
-
 // modified version of string_to_int from Simple_String.jai
 // basically just hardcoded for u64, since we can always convert from there down to any other int type
 // honestly not sure why one would want that version to be polymorphic in the first place?
-string_to_u64 :: (s: string, base: u64 = 10) -> result: u64, success: bool, remainder: string {
+string_to_u64 :: (text: string, base: u64 = 10) -> result: u64, success: bool, remainder: string {
     assert(base == 16 || base <= 10);
-    if !s  return 0, false, "";
+    if !text  return 0, false, "";
     
+    s := text;
     sum: u64 = 0;
     cursor := 0;
     
