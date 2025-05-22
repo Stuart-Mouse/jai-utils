@@ -92,9 +92,19 @@ try_lex_number :: (using scanner: *Scanner) -> string {
     return "";
 }
 
-parse_escape_sequence :: (str: string) -> value: string, success: bool, sequence_length: int {
+
+// ========== Escape Sequences ==========
+
+// TODO: figure out some way to avoid all the use of tprint. 
+// We can probably just have user provide a fixed-size buffer for us to work with here.
+parse_escape_sequence :: (str: string, quote_char: u8 = #char "\"") -> value: string, success: bool, sequence_length: int {
     if str.count < 2 || str[0] != #char "\\" {
         return "", false, 0;
+    }
+    
+    if str[1] == quote_char {
+        // this is silly
+        return copy_string(string.{ 1, *quote_char },, temp), true, 2;
     }
     
     if str[1] == {
@@ -103,7 +113,6 @@ parse_escape_sequence :: (str: string) -> value: string, success: bool, sequence
       case #char "r";   return "\r", true, 2;
       case #char "t";   return "\t", true, 2;
       case #char "0";   return "\0", true, 2;
-      case #char "\"";  return "\"", true, 2;
       case #char "\\";  return "\\", true, 2;
       
       case #char "x";
@@ -111,7 +120,7 @@ parse_escape_sequence :: (str: string) -> value: string, success: bool, sequence
             log("Error: unexpected EOF in hexadecimal escape sequence: '%'", str);
             return "", false, 0;
         }
-        return tprint(slice(str, 0, 4)), true, 2;
+        return tprint(slice(str, 0, 4)), true, 4;
         
       case #char "d";
         if str.count < 5 {
@@ -127,21 +136,21 @@ parse_escape_sequence :: (str: string) -> value: string, success: bool, sequence
             log("Error: value of decimal escape sequence cannot be greater than 255: '%'", str);
             return "", false, 0;
         }
-        return tprint(slice(str, 0, 5)), true, 2;
+        return tprint(slice(str, 0, 5)), true, 5;
         
       case #char "u";
         if str.count < 6 {
             log("Error: unexpected EOF in 16-bit unicode escape sequence: '%'", str);
             return "", false, 0;
         }
-        return tprint(slice(str, 0, 4)), true, 2;
+        return tprint(slice(str, 0, 6)), true, 6;
         
       case #char "U";
-        if str.count < 6 {
+        if str.count < 10 {
             log("Error: unexpected EOF in 32-bit unicode escape sequence: '%'", str);
             return "", false, 0;
         }
-        return tprint(slice(str, 0, 6)), true, 2;
+        return tprint(slice(str, 0, 10)), true, 10;
     }
     
     log("Error: invalid escape sequence beginning with: '%'", slice(str, 0, 2));
@@ -152,6 +161,85 @@ parse_escape_sequence :: (scanner: *Scanner) -> value: string, success: bool {
     value, ok, len := parse_escape_sequence(scanner.file);
     if ok  advance(scanner, len);
     return value, ok;
+}
+
+
+// Feels poorly named, but not sure what else to call it.
+convert_escape_sequences :: (builder: *String_Builder, text: string, quote_char: u8 = #char "\"") -> bool {
+    _text := text;
+    while _text {
+        if _text[0] == #char "\\" {
+            str, ok, len := parse_escape_sequence(_text, quote_char);
+            if !ok  return false;
+            append(builder, str);
+            advance(*_text, len);
+        } else {
+            append(builder, _text[0]);
+            advance(*_text, 1);
+        }
+    }
+    return true;
+}
+
+convert_escape_sequences :: (text: string) -> string, bool {
+    builder: String_Builder;
+    ok := convert_escape_sequences(*builder, text);
+    if !ok {
+        free_buffers(*builder);
+        return "", false;
+    }
+    return builder_to_string(*builder), true;
+}
+
+// Feels poorly named, but not sure what else to call it.
+revert_escape_sequences :: (builder: *String_Builder, text: string, quote_char: u8 = #char "\"") -> bool {
+    if !text  return true;
+    
+    // for text {
+    for :utf8_iter text {
+        if it == {
+          case #char "\e";  append(builder, "\\e");  continue;
+          case #char "\n";  append(builder, "\\n");  continue;
+          case #char "\r";  append(builder, "\\r");  continue;
+          case #char "\t";  append(builder, "\\t");  continue;
+          case #char "\0";  append(builder, "\\0");  continue;
+          case #char "\\";  append(builder, "\\\\"); continue;
+        }
+        
+        if it == quote_char {
+            buf := u8.[ #char "\\", quote_char ];
+            append(builder, xx buf);
+            continue;
+        }
+        
+        // if outside of printable ascii range, append as hex escape sequence
+        if it < 0x20 || it == 0x7f {
+            append(builder, "\\x");
+            append(builder, xx byte_to_ascii_hex(it.(u8)));
+            continue;
+        }
+        
+        // TODO: append only "printable" utf8 characters as-is, without escaping
+        //       may have to consult what Go considers to be the printable subset of utf8
+        // TODO: also figure out how to properly convert utf32 value back into \u or \U codepoint if not printable
+        //       I think this will require reversing the byte order before doing bytes_to_asii_hex
+        buffer: [8] u8;
+        str := string.{ 0, buffer.data };
+        character_utf32_to_utf8(it, *str);
+        append(builder, str);
+    }
+    
+    return true;
+}
+
+revert_escape_sequences :: (text: string) -> string, bool {
+    builder: String_Builder;
+    ok := revert_escape_sequences(*builder, text);
+    if !ok {
+        free_buffers(*builder);
+        return "", false;
+    }
+    return builder_to_string(*builder), true;
 }
 
 
@@ -307,3 +395,149 @@ parse_number :: (s: string) -> result: Any_Number, success: bool, remainder: str
         return ret, true, remainder;
     }
 }
+
+
+// ========== ASCII Hexadecimal to Binary Conversions ==========
+
+ascii_hex_char_to_byte :: (c: u8) -> u8 {
+    if c >= #char "0" && c <= #char "9" then return  c - #char "0";
+    if c >= #char "A" && c <= #char "F" then return (c - #char "A") + 10;
+    if c >= #char "a" && c <= #char "f" then return (c - #char "a") + 10;
+    return 0;
+}
+
+// // TODO: this procedure is too big and complicated, with too many parameters!
+// //       we should split it up into multiple more focused procedures
+// ascii_hex_to_bytes_buf :: (
+//     dst:        []u8, 
+//     src:        string, 
+//     pad_type:   Data_Pad_Type = .NONE, 
+//     pad_byte:   u8            = 0, 
+//     big_endian := false // endianness of dst
+// ) -> int {
+//     src := transmute([]u8) src
+    
+//     pad_type := pad_type
+
+//     src_len_is_odd := (len(src) & 1) == 1
+//     if src_len_is_odd {
+//         if pad_type == .NONE {
+//             return -1
+//         }
+//     } else {
+//         pad_type = .NONE
+//     }
+    
+//     len_bytes := len(src) / 2 + int(src_len_is_odd)
+//     if len(dst) < len_bytes {
+//         return -1
+//     }
+    
+//     nib1_shift        : uint = 4
+//     nib2_shift        : uint = 0
+//     nib2_store_offset :  int = 0
+    
+//     end := len_bytes
+    
+//     #partial switch pad_type {
+//       case .LEFT:
+//         // for left pad, switch the shifts of each source nibble and store second nibble in the next byte
+//         nib1_shift = 0
+//         nib2_shift = 4
+//         nib2_store_offset = 1
+        
+//         dst[0] = (0xF0 & pad_byte)
+//         fallthrough
+            
+//       case .RIGHT:
+//         // for both left and right cases, stop one byte short of the end and write the last byte manually
+//         end -= 1
+//     }
+    
+//     src_i := 0
+//     dst_i := 0
+//     if big_endian {
+//         dst_i = end - 1
+//         for dst_i >= 0 {
+//             nib1 := ascii_hex_char_to_int(src[src_i  ])
+//             nib2 := ascii_hex_char_to_int(src[src_i+1])
+//             dst[dst_i                  ] |= nib1 << nib1_shift
+//             dst[dst_i+nib2_store_offset] |= nib2 << nib2_shift
+            
+//             src_i += 2
+//             dst_i -= 1
+//         }
+//     } else {
+//         for dst_i < end {
+//             nib1 := ascii_hex_char_to_int(src[src_i  ])
+//             nib2 := ascii_hex_char_to_int(src[src_i+1])
+//             dst[dst_i                  ] |= nib1 << nib1_shift
+//             dst[dst_i+nib2_store_offset] |= nib2 << nib2_shift
+            
+//             src_i += 2
+//             dst_i += 1
+//         }
+//     }
+    
+//     #partial switch pad_type {
+//       case .LEFT:
+//         // OR in the last nibble from src
+//         dst[dst_i] |= (0x0F & ascii_hex_char_to_int(src[src_i]))
+            
+//       case .RIGHT:
+//         // high nibble is the last nibble from src, low nibble is pad
+//         nib1 := ascii_hex_char_to_int(src[src_i])
+//         nib2 := (0x0F & pad_byte)
+//         dst[dst_i] = (nib1 << 4) | nib2
+//     }
+    
+//     return len_bytes
+// }
+
+// ascii_hex_to_bytes :: (src: string, pad_type: Data_Pad_Type = .NONE, pad_byte: u8 = 0, allocator := context.allocator) -> ([]u8, bool) {
+//     len_bytes := nibble_len_to_byte_len(len(src))
+//     dst := make([]u8, len_bytes, allocator = allocator)
+    
+//     bytes_written := ascii_hex_to_bytes_buf(dst, src, pad_type, pad_byte)
+//     if bytes_written != len(dst) {
+//         delete(dst)
+//         return {}, false
+//     }
+    
+//     return dst, true
+// }
+
+ASCII_HEX_NIBBLES :: "0123456789ABCDEF";
+
+byte_to_ascii_hex :: inline (byte: u8) -> [2] u8 {
+    return .[
+        ASCII_HEX_NIBBLES[0x0F & (byte >> 4)],
+        ASCII_HEX_NIBBLES[0x0F &  byte      ],
+    ];
+}
+
+// dst buffer must be at least large enough for the src data
+bytes_to_ascii_hex :: (dst: [] u8, src: string) -> (bytes_written: int) {   
+    output_size := src.count * 2;
+    if output_size > dst.count  return -1;
+    
+    src_char, dst_char: *u8;
+    while dst_i < dst.data + output_size {
+        dst[dst_i    ] = nibble_to_ascii_hex[0x0F & (src[src_i] >> 4)];
+        dst[dst_i + 1] = nibble_to_ascii_hex[0x0F &  src[src_i]      ];
+        
+        src_char += 1;
+        dst_char += 2;
+    }
+    return output_size;
+}
+
+// Technically this can just be an inline proc, but because we are explicitly relying on the
+// buffer's storage belonging to the caller's scope, it feels better for this to be a macro.
+// with_buffer :: ($BYTE_COUNT: int, $proc: ([]u8, string) -> int, src: string) -> string #expand {
+//     #assert(proc != null);
+//     buffer: [BYTE_COUNT] u8;
+//     bytes_written := proc(buffer, src);
+//     assert(bytes_written >= 0 && bytes_written <= BYTE_COUNT);
+//     return string.{ bytes_written, *buffer };
+// }

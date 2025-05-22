@@ -34,18 +34,7 @@ array_find_where :: inline (array: []$T, $$cond: (T, P) -> bool, $$data: $P, $re
 
 // For other dynamic array-related functions, look at the Any_Array in any.jai.
 
-array_reserve_nonpoly :: (array: *Resizable_Array, desired_items: s64, elem_size: s64) {
-    if desired_items <= array.allocated return;
-    
-    if !array.allocator.proc  remember_allocators(array);
-    
-    array.data = realloc(array.data, desired_items * elem_size, array.allocated * elem_size,, array.allocator);
-    assert(array.data != null); // The program will die if we couldn't get memory. We can think about an alternative strategy, but it's hard to know what would be reasonable.
-    
-    array.allocated = desired_items;
-}
-
-array_add_any :: inline (any: Any) -> Any {
+array_add_any :: inline (array: Any) -> Any {
     assert(array.type.type == .ARRAY);
     
     ti_array := array.type.(*Type_Info_Array);
@@ -54,22 +43,24 @@ array_add_any :: inline (any: Any) -> Any {
     // maybe grow array
     if array.count >= array.allocated {
         reserve := max(2 * array.allocated, 8);
-        array_reserve_nonpoly(xx array, reserve, ti_array.element_type.runtime_size);
+        array_reserve(array, reserve, ti_array.element_type.runtime_size);
     }
      
-    defer array.count += 1; // run after return
+    defer array.count += 1; // increment after return
     return Any.{ elem_type, array.data + (array.count * elem_type.runtime_size) };
 }
 
-array_add_any_at_index :: (array_any: Any, index: int) -> Any {
-    if array_any.value_pointer == null || array_any.type.type != .ARRAY 
+array_add_any_at_index :: (array: Any, index: int) -> Any {
+    assert(array.type.type == .ARRAY);
+    if array.value_pointer == null || array.type.type != .ARRAY {
         return Any.{};
+    }
     
-    ti_array  := array_any.type.(*Type_Info_Array);
-    raw_array := array_any.value_pointer.(*Resizable_Array);
+    ti_array  := array.type.(*Type_Info_Array);
+    raw_array := array.value_pointer.(*Resizable_Array);
     new_cap   := max(next_power_of_two(index + 1), 8);
     
-    array_reserve_nonpoly(xx raw_array, new_cap, ti_array.element_type.runtime_size);
+    array_reserve(raw_array, new_cap, ti_array.element_type.runtime_size);
     
     raw_array.count = max(raw_array.count, index + 1);
     

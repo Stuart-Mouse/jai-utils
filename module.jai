@@ -24,9 +24,12 @@ all_bytes_are_zero :: (any: Any) -> bool {
 
 // TODO: could be much more efficient
 all_bytes_are_zero :: (data: *void, count: int) -> bool {
-    begin := data.(*u8);
-    end   := begin + count - 1;
-    for begin..end  if it.*  return false;
+    ptr := data.(*u8);
+    end := ptr + count;
+    while ptr < end {
+        if ptr.*  return false;
+        ptr += 1;
+    }
     return true;
 }
 
@@ -139,3 +142,4 @@ get_pool_allocator :: (pool: *Flat_Pool) -> Allocator {
 #import "Flat_Pool";
 #import "String";
 #import "Math";
+#import "Unicode";

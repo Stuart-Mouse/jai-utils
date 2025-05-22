@@ -1,23 +1,8 @@
-
-// Combination of an Any and an Array_View_64
-// Removes the need for 2 levels of indirection to underlying array data.
-// This is a joke, I think.
-Many_Any :: struct {
-    type:  *Type_Info; // element type
-    data:  *void;
-    count: s64;
-}
+// ========== General ==========
 
 Null_Any :: Any.{};
 Void_Any :: Any.{ type = type_info(void) };
 
-
-
-// ========== General ==========
-
-operator ! :: (any: Any) {
-    return any.type == null || any.value_pointer == null;
-}
 
 // ========== Allocation ==========
 
@@ -68,7 +53,7 @@ get_member_any :: (struct_pointer: *void, member_info: *Type_Info_Struct_Member)
 }
 
 // also provides 'it_info' iterator pointing to Type_Info_Struct_Member
-iterate_struct_members :: (any: Any, body: Code) {
+iterate_struct_members :: (any: Any, body: Code) #expand {
     assert(any.type.type == .STRUCT);
     ti_struct := any.type.(*Type_Info_Struct);
     
@@ -204,8 +189,6 @@ negate_number :: inline (any: *Any_Number) -> bool {
 }
 
 
-// Although it has uses outside the Any_Number, the purpose of the Number_Union is similar enough that I felt like putting it here.
-// NOTE: as_pointer is omitted because the compiler has special autism for pointers returned from #run. Just use a u64 for that I guess.
 Number_Union :: union {
     as_u\8:     u\8;
     as_u16:     u16;
@@ -241,8 +224,8 @@ operator == :: (a: Number_Union, b: Number_Union) -> bool {
 // While this is literally just an Any, it's helpful to have a distinct type with array-specific procedures.
 // The main reason I really created this was for the for expansion, which can be quite useful when iterating over an array of unknown type.
 Any_Array :: struct {
-    type: *Type_Info_Array;
-    value_pointer: *void;
+    using array_info:   *Type_Info_Array;
+    value_pointer:      *void;
     
     from :: make_any_array;
 }
@@ -253,24 +236,133 @@ make_any_array :: (any: Any) -> Any_Array {
 }
 
 get_count_and_data :: inline (array: Any_Array) -> (int, *void) {
-    count, data := get_array_count_and_data(array.value_pointer, array.type);
+    count, data := get_array_count_and_data(array.value_pointer, array.array_info);
     return count, data;
 }
 
+
+get_index :: inline (array: Any_Array, index: int) -> Any, bool {
+    count, data := get_count_and_data(array);
+    if index < 0 || index >= count {
+        return Null_Any, false;
+    }
+    return Any.{ array.element_type, data + (index * array.element_type.runtime_size) }, true;
+}
 operator [] :: get_index;
 
-get_index :: inline (array: Any_Array, index: int) -> Any {
-    count, data := get_count_and_data(array);
-    assert(index >= 0 && index < count);
-    return Any.{ array.type.element_type, data + (array.type.element_type.runtime_size * index) };
-}
 
-for_expansion :: (array: Any_Array, body: Code, for_flags: For_Flags) {
+set_index :: inline (array: Any_Array, index: int, value: Any) {
     count, data := get_count_and_data(array);
-    `it = Any.{ array.element_type, data };
+    assert(index > 0 && index < count, "Array index % is out of bounds. array.count = %", index, count);
+    
+    element := Any.{ array.element_type, data + (index * array.element_type.runtime_size) };
+    memcpy_any(element, value);
+}
+operator []= :: set_index;
+
+
+for_expansion :: (array: Any_Array, body: Code, for_flags: For_Flags) #expand {
+    count, data := get_count_and_data(array);
+    `it := Any.{ array.element_type, data };
     for `it_index: 0..count-1 {
         #insert body;
         it.value_pointer += array.element_type.runtime_size;
     }
 }
+
+is_null :: (array: Any_Array) -> bool {
+    count, data := get_count_and_data(array);
+    return data == null;
+}
+
+
+resize :: (array: Any_Array, new_count: int, $initialize := false) {
+    assert(array.array_type != .FIXED);
+    
+    old_count: int;
+    if array.array_type == {
+      case .RESIZABLE;
+        raw_array := array.value_pointer.(*Resizable_Array);
+        old_count  = raw_array.count;
+        
+        array_reserve(raw_array, new_count, array.element_type.runtime_size);
+        raw_array.count = new_count;
+        
+      case .VIEW;
+        raw_array := array.value_pointer.(*Array_View_64);
+        old_count  = raw_array.count;
+        
+        if old_count < new_count {
+            raw_array.data = realloc(raw_array.data,
+                new_count * array.element_type.runtime_size, 
+                old_count * array.element_type.runtime_size
+            );
+        }
+        raw_array.count = new_count;
+    }
+    
+    #if initialize  init_range(array, old_count, new_count);
+}
+
+init_range :: (array: Any_Array, begin: s64, end: s64) {
+    array_count, array_data := get_count_and_data(array);
+    assert(0 < begin && begin < end && end < array_count);
+    
+    count := end - begin;
+    if count <= 0  return;
+    
+    if array.element_type.type == .STRUCT {
+        struct_info := array.element_type.(*Type_Info_Struct);
+        if struct_info.initializer {
+            for array_view(array, begin, begin - end) {
+                struct_info.initializer(it.value_pointer);
+            }
+            return;
+        }
+    }
+    
+    memset(array_data + begin * array.element_type.runtime_size, 0, count * array.element_type.runtime_size );
+}
+
+array_view :: (array: Any_Array, index: int, count := S64_MAX) -> Many_Any {
+    array_count, array_data := get_count_and_data(array);
+    
+    assert(index >= 0, "index = %", index);
+    assert(count >= 0, "count = %", count);
+    
+	result: Many_Any = ---;
+    result.type = array.element_type;
+    
+    if index >= array_count {
+        return result;
+    }
+    if index + count > array_count {
+        count = array_count - index;
+    }
+    
+    result.count = count;
+    result.data  = array_data + index * array.element_type.runtime_size;
+    return result;
+}
+
+/*
+    The Many_Any is sort of a combination of an Any and an Array_View_64.
+    Using this removes the need for 2 levels of indirection to the underlying array data.
+*/
+Many_Any :: struct {
+    using info:  *Type_Info; // element type info
+    data:        *void;
+    count:       s64;
+}
+
+for_expansion :: (view: Many_Any, body: Code, for_flags: For_Flags) #expand {
+    `it := Any.{ view.info, view.data };
+    for `it_index: 0..count-1 {
+        #insert body;
+        it.value_pointer += view.info.runtime_size;
+    }
+}
+
+// TODO: make_many_any
+// TODO: many_any resize / allocate
 
