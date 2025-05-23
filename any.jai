@@ -48,16 +48,35 @@ get_member_any :: (any_struct: Any, member_name: string) -> Any {
     return Null_Any;
 }
 
+// TODO: we should probably handle constant members properly...
 get_member_any :: (struct_pointer: *void, member_info: *Type_Info_Struct_Member) -> Any {
     return Any.{ member_info.type, struct_pointer + member_info.offset_in_bytes };
 }
 
+
+Struct_Member_Iterator_Flags :: enum_flags {
+    SKIP_CONSTANT;
+    SKIP_PLACE;
+}
+
 // also provides 'it_info' iterator pointing to Type_Info_Struct_Member
-iterate_struct_members :: (any: Any, body: Code) #expand {
+iterate_struct_members :: (any: Any, body: Code, $flags: Struct_Member_Iterator_Flags) #expand {
     assert(any.type.type == .STRUCT);
     ti_struct := any.type.(*Type_Info_Struct);
     
+    #if flags & .SKIP_PLACE {
+        last_member_offset := -1;
+    }
     for `it_info, `it_index: ti_struct.members {
+        #if flags & .SKIP_CONSTANT {
+            if it_info.flags & .CONSTANT  continue;
+        }
+        #if flags & .SKIP_PLACE {
+            // NOTE: This skips unions entirely, since all members have the same offset. 
+            //       So probably just don't use .SKIP_PLACE with unions I guess.
+            if it_info.offset_in_bytes <= last_member_offset  continue;
+            last_member_offset = it_info.offset_in_bytes;
+        }
         `it := Any.{ it_info.type, any.value_pointer + it_info.offset_in_bytes };
         #insert body;
     }
