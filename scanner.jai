@@ -21,7 +21,7 @@ advance :: inline (using scanner: *Scanner, amount := 1) -> bool {
     _amount := min(amount, file.count);
     
     for 0.._amount-1 {
-        if file[it] == #char "\n" {
+        if file[it] == "\n" {
             location.line_number += 1;
             location.character_number = 1;
         } else {
@@ -36,9 +36,9 @@ advance :: inline (using scanner: *Scanner, amount := 1) -> bool {
 }
 
 is_hex_digit :: (c: u8) -> bool {
-    return c >= #char "0" && c <= #char "9"
-        || c >= #char "a" && c <= #char "f"
-        || c >= #char "A" && c <= #char "F";
+    return c >= "0" && c <= "9"
+        || c >= "a" && c <= "f"
+        || c >= "A" && c <= "F";
 }
 
 /*
@@ -58,32 +58,32 @@ is_hex_digit :: (c: u8) -> bool {
         
 */
 try_lex_number :: (using scanner: *Scanner) -> string {
-    if file && (is_digit(file[0]) || (file.count > 1 && (file[0] == #char "+" || file[0] == #char "-") && is_digit(file[1]))) {
+    if file && (is_digit(file[0]) || (file.count > 1 && (file[0] == "+" || file[0] == "-") && is_digit(file[1]))) {
         text := string.{ 0, file.data };
         
-        if file[0] == #char "0" && advance(scanner) {
+        if file[0] == "0" && advance(scanner) {
             if file[0] == {
-              case #char "b"; 
+              case "b"; 
                 if advance(scanner) {
-                    while (file[0] == #char "0" || file[0] == #char "1" || file[0] == #char "_") && advance(scanner) {}
+                    while (file[0] == "0" || file[0] == "1" || file[0] == "_") && advance(scanner) {}
                 }
                 text.count = file.data - text.data;
                 return text;                
                 
-              case #char "h"; #through;
-              case #char "x"; 
+              case "h"; #through;
+              case "x"; 
                 if advance(scanner) {
-                    while (is_hex_digit(file[0]) || file[0] == #char "_") && advance(scanner) {}
+                    while (is_hex_digit(file[0]) || file[0] == "_") && advance(scanner) {}
                 }
                 text.count = file.data - text.data;
                 return text;
             }
         }
         
-        while (is_digit(file[0]) || file[0] == #char "_") && advance(scanner) {};
+        while (is_digit(file[0]) || file[0] == "_") && advance(scanner) {};
         
-        if file && file[0] == #char "." && advance(scanner) {
-            while (is_digit(file[0]) || file[0] == #char "_") && advance(scanner) {};
+        if file && file[0] == "." && advance(scanner) {
+            while (is_digit(file[0]) || file[0] == "_") && advance(scanner) {};
         }
         
         text.count = file.data - text.data;
@@ -97,8 +97,8 @@ try_lex_number :: (using scanner: *Scanner) -> string {
 
 // TODO: figure out some way to avoid all the use of tprint. 
 // We can probably just have user provide a fixed-size buffer for us to work with here.
-parse_escape_sequence :: (str: string, quote_char: u8 = #char "\"") -> value: string, success: bool, sequence_length: int {
-    if str.count < 2 || str[0] != #char "\\" {
+parse_escape_sequence :: (str: string, quote_char: u8 = "\"") -> value: string, success: bool, sequence_length: int {
+    if str.count < 2 || str[0] != "\\" {
         return "", false, 0;
     }
     
@@ -108,21 +108,21 @@ parse_escape_sequence :: (str: string, quote_char: u8 = #char "\"") -> value: st
     }
     
     if str[1] == {
-      case #char "e";   return "\e", true, 2;
-      case #char "n";   return "\n", true, 2;
-      case #char "r";   return "\r", true, 2;
-      case #char "t";   return "\t", true, 2;
-      case #char "0";   return "\0", true, 2;
-      case #char "\\";  return "\\", true, 2;
+      case "e";   return "\e", true, 2;
+      case "n";   return "\n", true, 2;
+      case "r";   return "\r", true, 2;
+      case "t";   return "\t", true, 2;
+      case "0";   return "\0", true, 2;
+      case "\\";  return "\\", true, 2;
       
-      case #char "x";
+      case "x";
         if str.count < 4 {
             log("Error: unexpected EOF in hexadecimal escape sequence: '%'", str);
             return "", false, 0;
         }
         return tprint(slice(str, 0, 4)), true, 4;
         
-      case #char "d";
+      case "d";
         if str.count < 5 {
             log("Error: unexpected EOF in decimal escape sequence: '%'", str);
             return "", false, 0;
@@ -138,14 +138,14 @@ parse_escape_sequence :: (str: string, quote_char: u8 = #char "\"") -> value: st
         }
         return tprint(slice(str, 0, 5)), true, 5;
         
-      case #char "u";
+      case "u";
         if str.count < 6 {
             log("Error: unexpected EOF in 16-bit unicode escape sequence: '%'", str);
             return "", false, 0;
         }
         return tprint(slice(str, 0, 6)), true, 6;
         
-      case #char "U";
+      case "U";
         if str.count < 10 {
             log("Error: unexpected EOF in 32-bit unicode escape sequence: '%'", str);
             return "", false, 0;
@@ -165,10 +165,10 @@ parse_escape_sequence :: (scanner: *Scanner) -> value: string, success: bool {
 
 
 // Feels poorly named, but not sure what else to call it.
-convert_escape_sequences :: (builder: *String_Builder, text: string, quote_char: u8 = #char "\"") -> bool {
+convert_escape_sequences :: (builder: *String_Builder, text: string, quote_char: u8 = "\"") -> bool {
     _text := text;
     while _text {
-        if _text[0] == #char "\\" {
+        if _text[0] == "\\" {
             str, ok, len := parse_escape_sequence(_text, quote_char);
             if !ok  return false;
             append(builder, str);
@@ -192,7 +192,7 @@ convert_escape_sequences :: (text: string) -> string, bool {
 }
 
 // Feels poorly named, but not sure what else to call it.
-revert_escape_sequences :: (builder: *String_Builder, text: string, quote_char: u8 = #char "\"") -> bool {
+revert_escape_sequences :: (builder: *String_Builder, text: string, quote_char: u8 = "\"") -> bool {
     if !text  return true;
     
     // for text {
@@ -207,7 +207,7 @@ revert_escape_sequences :: (builder: *String_Builder, text: string, quote_char: 
         }
         
         if it == quote_char {
-            buf := u8.[ #char "\\", quote_char ];
+            buf := u8.[ "\\", quote_char ];
             append(builder, xx buf);
             continue;
         }
@@ -273,15 +273,15 @@ string_to_u64 :: (text: string, base: u64 = 10) -> result: u64, success: bool, r
         while cursor < s.count {
             defer cursor += 1;
             c := s[cursor];
-            if c == #char "_"  continue;
+            if c == "_"  continue;
 
             digit: u8 = ---;
             if is_digit(c) {
-                digit = c - #char "0";
-            } else if (c >= #char "a") && (c <= #char "f") {
-                digit = c - #char "a" + 10;
-            } else if (c >= #char "A") && (c <= #char "F") {
-                digit = c - #char "A" + 10;
+                digit = c - "0";
+            } else if (c >= "a") && (c <= "f") {
+                digit = c - "a" + 10;
+            } else if (c >= "A") && (c <= "F") {
+                digit = c - "A" + 10;
             } else {
                 break;
             }
@@ -293,11 +293,11 @@ string_to_u64 :: (text: string, base: u64 = 10) -> result: u64, success: bool, r
         while cursor < s.count {
             defer cursor += 1;
             c := s[cursor];
-            if c == #char "_"  continue;
+            if c == "_"  continue;
 
             if !is_digit(c) break;
             
-            digit := c - #char "0";
+            digit := c - "0";
             if digit >= base break;
             
             prev := sum;
@@ -342,7 +342,7 @@ parse_number :: (s: string) -> result: Any_Number, success: bool, remainder: str
     
     // if we've got a decimal point in there, we will prefer float64
     // else we parse and store it as an integer below
-    if contains(s, #char ".") {
+    if contains(s, ".") {
         val, ok, remainder := string_to_float64(s);
         if !ok  log("Error: failed to parse float from '%'.", s);
         return Any_Number.from(val), ok, remainder;
@@ -351,23 +351,23 @@ parse_number :: (s: string) -> result: Any_Number, success: bool, remainder: str
     str := s;
     
     negate := false;
-    if str && str[0] == #char "-" {
+    if str && str[0] == "-" {
         negate = true;
         advance(*str, 1);
     }
     
     base: u64 = 10;
-    if str[0] == #char "0" && str.count >= 2 {
+    if str[0] == "0" && str.count >= 2 {
         if str[1] == {
-          case #char "b"; 
+          case "b"; 
             advance(*str, 2);
             base = 2;
             
-          case #char "x"; 
+          case "x"; 
             advance(*str, 2);
             base = 16;
             
-          // case #char "h";
+          // case "h";
           //   advance(*str, 2);
           //   base = 16;
           //   is_hex_float = true;
@@ -400,9 +400,9 @@ parse_number :: (s: string) -> result: Any_Number, success: bool, remainder: str
 // ========== ASCII Hexadecimal to Binary Conversions ==========
 
 ascii_hex_char_to_byte :: (c: u8) -> u8 {
-    if c >= #char "0" && c <= #char "9" then return  c - #char "0";
-    if c >= #char "A" && c <= #char "F" then return (c - #char "A") + 10;
-    if c >= #char "a" && c <= #char "f" then return (c - #char "a") + 10;
+    if c >= "0" && c <= "9" then return  c - "0";
+    if c >= "A" && c <= "F" then return (c - "A") + 10;
+    if c >= "a" && c <= "f" then return (c - "a") + 10;
     return 0;
 }
 

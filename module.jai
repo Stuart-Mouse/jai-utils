@@ -65,7 +65,7 @@ unreachable :: inline (loc := #caller_location) {
 }
 
 // just tprint but with automatic null-termination, and returning a *u8
-tprintc :: (format_string: string, args: .. Any) -> *u8 #must {
+tprintc :: (format_string: string, args: .. Any) -> *u8 {
     builder: String_Builder;
     builder.allocator = temp;
 
