@@ -76,6 +76,12 @@ tprintc :: (format_string: string, args: .. Any) -> *u8 {
 } @PrintLike
 
 
+is_within_array :: inline (array: [] $T, ptr: *T) -> bool {
+    // TODO: could also do check to make sure alignment is correct? Maybe as a baked parameter?
+    return ptr >= array.data && ptr <= array.data + array.count - 1;
+}
+
+
 // ========== Math-ish ==========
 
 // I don't really wanna put too much math stuff in this module since that should probably get its own separate module,

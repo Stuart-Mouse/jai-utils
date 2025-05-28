@@ -36,21 +36,32 @@ initialize_any :: (any: Any) {
 
 // ========== Reflection ==========
 
-get_member_any :: (any_struct: Any, member_name: string) -> Any {
-    assert(any_struct.type.type == .STRUCT);
-    ti_struct := any_struct.type.(*Type_Info_Struct);
+get_member :: (any_struct: Any, member_name: string) -> bool, Any, *Type_Info_Struct_Member {
+    struct_info := any_struct.type.(*Type_Info_Struct);
+    assert(struct_info.type == .STRUCT);
     
-    for *ti_struct.members {
-        if it.name == member_name {
-            return get_member_any(any_struct.value_pointer, it);
+    member_info, member_offset := get_field(struct_info, member_name);
+    if member_info {
+        if member_info.flags & .CONSTANT {
+            return true, Any.{ member_info.type, struct_info.constant_storage.data + member_info.offset_into_constant_storage }, member_info;
         }
+        return true, Any.{ member_info.type, any_struct.value_pointer + member_info.offset_in_bytes }, member_info;
     }
-    return Null_Any;
+    return false, Null_Any, null;
 }
 
-// TODO: we should probably handle constant members properly...
-get_member_any :: (struct_pointer: *void, member_info: *Type_Info_Struct_Member) -> Any {
-    return Any.{ member_info.type, struct_pointer + member_info.offset_in_bytes };
+// NOTE: this version will only accept members that are directly on the given struct, not fields that were retrieved through a using.
+get_member :: (any_struct: Any, member_info: *Type_Info_Struct_Member) -> member_any: Any {
+    assert(any_struct.type.type == .STRUCT, "was %", as_type(any_struct.type));
+    struct_info := any_struct.type.(*Type_Info_Struct);
+    
+    // verify that the member belongs to this struct
+    assert(is_within_array(struct_info.members, member_info));
+    
+    if member_info.flags & .CONSTANT {
+        return Any.{ member_info.type, struct_info.constant_storage.data + member_info.offset_into_constant_storage };
+    }
+    return Any.{ member_info.type, any_struct.value_pointer + member_info.offset_in_bytes };
 }
 
 
@@ -60,7 +71,7 @@ Struct_Member_Iterator_Flags :: enum_flags {
 }
 
 // also provides 'it_info' iterator pointing to Type_Info_Struct_Member
-iterate_struct_members :: (any: Any, body: Code, $flags: Struct_Member_Iterator_Flags) #expand {
+iterate_struct_members :: (any: Any, $flags: Struct_Member_Iterator_Flags, body: Code) #expand {
     assert(any.type.type == .STRUCT);
     ti_struct := any.type.(*Type_Info_Struct);
     
@@ -74,7 +85,7 @@ iterate_struct_members :: (any: Any, body: Code, $flags: Struct_Member_Iterator_
         #if flags & .SKIP_PLACE {
             // NOTE: This skips unions entirely, since all members have the same offset. 
             //       So probably just don't use .SKIP_PLACE with unions I guess.
-            if it_info.offset_in_bytes <= last_member_offset  continue;
+            if it_info.offset_in_bytes <= last_member_offset  break;
             last_member_offset = it_info.offset_in_bytes;
         }
         `it := Any.{ it_info.type, any.value_pointer + it_info.offset_in_bytes };
@@ -142,6 +153,9 @@ to_any :: inline (any: *Any_Proc) -> Any {
     In fact I used to have value_pointer as a member of the union, but that doesn't always play nice at compile-time.
     But, you can still stick pointers in there and get them out all the same with to_any_number and get_as.
     Could also be used as a standard Any if we wanted to, but I haven't written any such procedures for this use case yet.
+    
+    TODO: some kind of metaprogram thing to prevent passing these special Any_X structs implicitly as an Any would be helpful.
+          or, would be nice if we could just modify how these structs get coerced to Any so that they have more intuitive behavior.
 */
 
 Any_Number :: struct {
@@ -294,7 +308,6 @@ is_null :: (array: Any_Array) -> bool {
     return data == null;
 }
 
-
 resize :: (array: Any_Array, new_count: int, $initialize := false) {
     assert(array.array_type != .FIXED);
     
@@ -323,17 +336,16 @@ resize :: (array: Any_Array, new_count: int, $initialize := false) {
     #if initialize  init_range(array, old_count, new_count);
 }
 
-init_range :: (array: Any_Array, begin: s64, end: s64) {
-    array_count, array_data := get_count_and_data(array);
-    assert(0 < begin && begin < end && end < array_count);
-    
-    count := end - begin;
+init_range :: (array: Any_Array, begin: s64, count: s64) {
     if count <= 0  return;
+    
+    array_count, array_data := get_count_and_data(array);
+    assert(begin >= 0 && begin + count <= array_count, "begin: %, count: %, array_count: %", begin, count, array_count);
     
     if array.element_type.type == .STRUCT {
         struct_info := array.element_type.(*Type_Info_Struct);
         if struct_info.initializer {
-            for array_view(array, begin, begin - end) {
+            for array_view(array, begin, count) {
                 struct_info.initializer(it.value_pointer);
             }
             return;
@@ -350,7 +362,7 @@ array_view :: (array: Any_Array, index: int, count := S64_MAX) -> Many_Any {
     assert(count >= 0, "count = %", count);
     
 	result: Many_Any = ---;
-    result.type = array.element_type;
+    result.info = array.element_type;
     
     if index >= array_count {
         return result;
@@ -376,7 +388,7 @@ Many_Any :: struct {
 
 for_expansion :: (view: Many_Any, body: Code, for_flags: For_Flags) #expand {
     `it := Any.{ view.info, view.data };
-    for `it_index: 0..count-1 {
+    for `it_index: 0..view.count-1 {
         #insert body;
         it.value_pointer += view.info.runtime_size;
     }

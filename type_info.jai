@@ -11,6 +11,10 @@ is_numeric_type :: inline (ti: *Type_Info) -> bool {
     return ti && (ti.type == .INTEGER || ti.type == .FLOAT);
 }
 
+is_union_type :: (ti: *Type_Info) -> bool {
+    return ti.type == .STRUCT && (ti.(*Type_Info_Struct).textual_flags & .UNION);
+}
+
 // two types are considered equivalent if we can memcpy between the two types validly.
 are_types_equivalent :: (ti1: *Type_Info, ti2: *Type_Info) -> bool {
     if ti1.type != ti2.type  return false;
