@@ -313,6 +313,14 @@ is_null :: (array: Any_Array) -> bool {
     return data == null;
 }
 
+get_element_index :: (array: Any_Array, element_pointer: *void) -> int {
+    count, data := get_count_and_data(array);
+    index := (element_pointer - data) / array.element_type.runtime_size;
+    assert(index >= 0 && index < count, "element_pointer % was not within valid array data range: %, %", data, data + count * array.element_type.runtime_size);
+    // assert((element_pointer - data) % array.element_type.runtime_size == 0, "element_pointer was not properly aligned");
+    return index;
+}
+
 resize :: (array: Any_Array, new_count: int, $initialize := false) {
     assert(array.array_type != .FIXED);
     

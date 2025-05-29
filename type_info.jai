@@ -89,3 +89,13 @@ are_structs_equivalent :: (ti1: *Type_Info_Struct, ti2: *Type_Info_Struct) -> bo
     
     return true;
 }
+
+// ========== Unions ==========
+
+union_contains_type :: (union_info: *Type_Info_Struct, type: *Type_Info) -> bool {
+    assert(is_union_type(union_info));
+    for union_info.members 
+        if it.type == type
+            return true;
+    return false;
+}
