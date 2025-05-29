@@ -78,7 +78,7 @@ iterate_struct_members :: (any: Any, $flags: Struct_Member_Iterator_Flags, body:
     #if flags & .SKIP_PLACE {
         last_member_offset := -1;
     }
-    for `it_info, `it_index: ti_struct.members {
+    for *`it_info, `it_index: ti_struct.members {
         #if flags & .SKIP_CONSTANT {
             if it_info.flags & .CONSTANT  continue;
         }
@@ -116,6 +116,11 @@ dereference_any_pointer :: (any: Any) -> Any, bool {
 memcpy_any :: (dst: Any, src: Any) {
     assert(dst.type == src.type, "% != %", as_type(dst.type), as_type(src.type));
     memcpy(dst.value_pointer, src.value_pointer, src.type.runtime_size);
+}
+
+isa :: inline (any: Any, $T: Type) -> *T {
+    // assert(any.type == xx T, "any.type == %, T == %", as_type(any.type), T);
+    return ifx any.type == xx T then any.value_pointer.(*T);
 }
 
 // ========== Any_Proc ==========
