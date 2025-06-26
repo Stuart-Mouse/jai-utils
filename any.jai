@@ -346,7 +346,7 @@ resize :: (array: Any_Array, new_count: int, $initialize := false) {
         raw_array.count = new_count;
     }
     
-    #if initialize  init_range(array, old_count, new_count);
+    #if initialize  init_range(array, old_count, new_count - old_count);
 }
 
 init_range :: (array: Any_Array, begin: s64, count: s64) {
