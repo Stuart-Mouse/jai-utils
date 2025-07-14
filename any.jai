@@ -14,7 +14,7 @@ New_Any :: inline (ti: *Type_Info, initialized := true) -> Any {
 
 // Dynamic_New was removed from the included modules for some reason, so I am including it here.
 // Capitalized for the sole purpose of matching naming of New().
-Dynamic_New :: (type: *Type_Info, initialized := true) -> *void {
+Dynamic_New :: inline (type: *Type_Info, $$initialized := true) -> *void {
     if type.runtime_size < 0  return null;   // Maybe they gave us a weird polymorphic type for some reason.
 
     memory := alloc(type.runtime_size);
