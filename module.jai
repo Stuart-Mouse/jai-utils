@@ -107,45 +107,12 @@ next_power_of_two :: inline (x : int) -> int {
     return p;
 }
 
-// ========== Flat Pool ==========
-
-// Again, I feel kinda bad putting this in a general Utils module that I'm asking people to download as a dependency...
-
-// is_this_yours for flat pool allocator
-is_this_yours :: (pool: *Flat_Pool, memory: *void) -> bool {
-    return flat_pool_allocator_proc(.IS_THIS_YOURS, 0, 0, memory, pool).(bool);
-}
-
-copy_to_pool_if_needed :: (pool: *Flat_Pool, any: Any) -> Any {
-    if is_this_yours(pool, any.value_pointer)  return any;
-    
-    copy := New_Any(any.type, initialized = false,, get_pool_allocator(pool));
-    memcpy(copy.value_pointer, any.value_pointer, any.type.runtime_size);
-    return copy;
-}
-
-copy_to_pool_if_needed :: (pool: *Flat_Pool, value: *$T) -> *T {
-    if is_this_yours(pool, value)  return value;
-    
-    copy := get(pool, size_of(T)).(*T);
-    copy.* = value.*;
-    return copy;
-}
-
-get_pool_allocator :: (pool: *Flat_Pool) -> Allocator {
-    return .{ flat_pool_allocator_proc, pool };
-}
-
-
-
-
 
 
 #scope_module
 
 #import "Reflection"; // for get_array_count_and_data
 #import "Basic";
-#import "Flat_Pool";
 #import "String";
 #import "Math";
 #import "Unicode";
