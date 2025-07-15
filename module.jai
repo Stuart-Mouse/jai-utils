@@ -98,7 +98,7 @@ modulo :: (n: $T, d: T) -> T #modify { return T.(*Type_Info).type == .INTEGER; }
 }
 
 // copied from Hash_Table module...
-next_power_of_two :: inline (x : int) -> int {
+next_power_of_two :: inline (x: int) -> int {
     // @Speed: This could certainly be faster.
     // There is probably something in Hacker's Delight for this.
     assert(x != 0);
@@ -111,7 +111,6 @@ next_power_of_two :: inline (x : int) -> int {
 
 #scope_module
 
-#import "Reflection"; // for get_array_count_and_data
 #import "Basic";
 #import "String";
 #import "Math";

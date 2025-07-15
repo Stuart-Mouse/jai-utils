@@ -274,8 +274,12 @@ make_any_array :: (any: Any) -> Any_Array {
 }
 
 get_count_and_data :: inline (array: Any_Array) -> (int, *void) {
-    count, data := get_array_count_and_data(array.value_pointer, array.array_info);
-    return count, data;
+    if array.array_type == .FIXED {
+        return array.array_count, array.value_pointer;
+    } else {
+        raw_array := array.value_pointer.(*Resizable_Array);
+        return raw_array.count, raw_array.data;
+    }
 }
 
 
