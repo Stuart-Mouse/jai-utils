@@ -3,6 +3,11 @@
 Null_Any :: Any.{};
 Void_Any :: Any.{ type = type_info(void) };
 
+compare_any :: (a: Any, b: Any) -> bool {
+    if a.type != b.type  return false;
+    return a.type == null || !memcmp(a.value_pointer, b.value_pointer, a.type.runtime_size);
+}
+
 
 // ========== Allocation ==========
 
@@ -134,7 +139,7 @@ isa :: inline (any: Any, $T: Type) -> *T {
 */
 
 Any_Proc :: struct {
-    type:       *Type_Info_Procedure;
+    using proc_info:    *Type_Info_Procedure;
     pointer:    *void;
     
     from :: to_any_proc;
@@ -146,7 +151,7 @@ to_any_proc :: inline (any: Any) -> Any_Proc {
 }
 
 to_any :: inline (any: *Any_Proc) -> Any {
-    return .{ any.type, *any.pointer };
+    return Any.{ any.proc_info, *any.pointer };
 }
 
 
