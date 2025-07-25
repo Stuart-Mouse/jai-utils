@@ -30,6 +30,19 @@ array_find_where :: inline (array: []$T, $$cond: (T, P) -> bool, $$data: $P, $re
     return null;
 }
 
+array_contains_any :: (array: []$T, elems: ..T) {
+    for a: array for e: elems if a == e  return true;
+}
+
+array_contains_all :: (array: []$T, elems: ..T) {
+    if a.count < e.count  return false;
+    for e: elems {
+        for a: array if a == e  continue e;
+        return false;
+    }
+    return true;
+}
+
 // ========== Dynamic Array Allocation ==========
 
 // For other dynamic array-related functions, look at the Any_Array in any.jai.
