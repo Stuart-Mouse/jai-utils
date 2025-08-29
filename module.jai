@@ -12,6 +12,7 @@
 #load "type_info.jai";
 #load "arrays.jai";
 #load "scanner.jai";
+#load "static_string.jai";
 
 
 // ========== General Purpose ==========
