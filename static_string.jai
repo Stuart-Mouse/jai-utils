@@ -13,18 +13,37 @@ to_c_string :: inline (s: *Static_String) -> *u8 {
     return s.data;
 }
 
-to_static_string :: inline (src: string, $capacity: int) -> bool, Static_String(capacity) {
+to_static_string :: inline (src: string, $capacity: int) -> Static_String(capacity), bool {
     dst: Static_String(capacity);
     ok := copy_from_string(*dst, src);
-    return ok, dst;
+    return dst, ok;
 }
 
 copy_from_string :: inline (dst: *Static_String, src: string) -> bool {
     if src.count > dst.capacity  return false;
     dst.count = src.count;
-    memcpy(dst.data, src.data, dst.count);
+    memcpy(*dst.data, src.data, dst.count);
     dst.data[dst.count] = 0;
     return true;
+}
+
+copy_to_string :: inline (s: *Static_String) -> string {
+    return copy_string(string.{ s.count, s.data.data });
+}
+
+
+operator *[] :: inline (s: *Static_String, index: int) -> *u8 { return *s.data[index]; }
+operator  [] :: inline (s:  Static_String, index: int) ->  u8 { return  s.data[index]; }
+
+// operator == :: inline (s1: Static_String, s2: Static_String) -> bool { return to_string(s1) == to_string(s2); }
+// operator == :: inline (s1: Static_String, s2: string) -> bool #symmetric { return to_string(s1) == s2; }
+
+for_expansion :: (s: *Static_String, body: Code, flags: For_Flags) #expand {
+    REVERSE    :: cast(bool) flags & .REVERSE;
+    DO_POINTER :: cast(bool) flags & .POINTER;
+    for <=REVERSE *=DO_POINTER  `it, `it_index: to_string(s) {
+        #insert body;
+    }
 }
 
 // imgui_input_static_string :: (
