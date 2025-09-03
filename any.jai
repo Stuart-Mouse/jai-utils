@@ -8,6 +8,12 @@ compare_any :: (a: Any, b: Any) -> bool {
     return a.type == null || !memcmp(a.value_pointer, b.value_pointer, a.type.runtime_size);
 }
 
+// for when you want to quickly cast an any to a pointer to the expected type, and assert if the type is wrong
+any_isa :: inline ($T: Type, a: Any) -> *T {
+    assert(a.type == xx T);
+    return a.value_pointer.(*T);
+}
+
 
 // ========== Allocation ==========
 

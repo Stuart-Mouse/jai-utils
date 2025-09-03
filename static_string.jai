@@ -1,7 +1,8 @@
 
+// NOTE: functional capacity is capacity - 1, since we always leave a null-terminator
 Static_String :: struct(capacity: int) {
     count:  s64;
-    data:   [capacity+1] u8; // 1 byte added for extra null terminator
+    data:   [capacity] u8;
 }
 
 to_string :: inline (s: *Static_String) -> string {
@@ -9,7 +10,7 @@ to_string :: inline (s: *Static_String) -> string {
 }
 
 to_c_string :: inline (s: *Static_String) -> *u8 {
-    s.data[min(s.count, s.capacity)] = 0;
+    s.data[min(s.count, s.capacity-1)] = 0; // null terminate at nominal length just in case
     return s.data;
 }
 
@@ -20,7 +21,7 @@ to_static_string :: inline (src: string, $capacity: int) -> Static_String(capaci
 }
 
 copy_from_string :: inline (dst: *Static_String, src: string) -> bool {
-    if src.count > dst.capacity  return false;
+    if src.count >= dst.capacity  return false;
     dst.count = src.count;
     memcpy(*dst.data, src.data, dst.count);
     dst.data[dst.count] = 0;
@@ -31,7 +32,7 @@ copy_to_string :: inline (s: *Static_String) -> string {
     return copy_string(string.{ s.count, s.data.data });
 }
 
-
+// NOTE: You can technically index the null-terminator directly here and not get an index out of bounds error. Would anyone care though? 
 operator *[] :: inline (s: *Static_String, index: int) -> *u8 { return *s.data[index]; }
 operator  [] :: inline (s:  Static_String, index: int) ->  u8 { return  s.data[index]; }
 
