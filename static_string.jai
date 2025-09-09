@@ -11,7 +11,7 @@ to_string :: inline (s: *Static_String) -> string {
 
 to_c_string :: inline (s: *Static_String) -> *u8 {
     s.data[min(s.count, s.capacity-1)] = 0; // null terminate at nominal length just in case
-    return s.data;
+    return s.data.data;
 }
 
 to_static_string :: inline (src: string, $capacity: int) -> Static_String(capacity), bool {
@@ -37,7 +37,7 @@ operator *[] :: inline (s: *Static_String, index: int) -> *u8 { return *s.data[i
 operator  [] :: inline (s:  Static_String, index: int) ->  u8 { return  s.data[index]; }
 
 // operator == :: inline (s1: Static_String, s2: Static_String) -> bool { return to_string(s1) == to_string(s2); }
-// operator == :: inline (s1: Static_String, s2: string) -> bool #symmetric { return to_string(s1) == s2; }
+// operator == :: inline (s1: Static_String, s2: string) -> bool #symmetric { return to_string(*s1) == s2; }
 
 for_expansion :: (s: *Static_String, body: Code, flags: For_Flags) #expand {
     REVERSE    :: cast(bool) flags & .REVERSE;
@@ -46,6 +46,24 @@ for_expansion :: (s: *Static_String, body: Code, flags: For_Flags) #expand {
         #insert body;
     }
 }
+
+// NOTE: we could just check the runtime size of the struct and subtract size_of(int), but this feels more rigorous somehow?
+// get_static_string_capacity_through_reflection :: (a: Any) -> int {
+//     assert(a.type.type == .STRUCT);
+    
+//     struct_info := a.type.(*Type_Info_Struct);
+//     assert(struct_info.polymorph_source_struct == xx Static_String);
+//     assert(struct_info.specified_parameters[0].name == "capacity");
+//     assert(struct_info.specified_parameters[0].type == xx int);
+    
+//     cs_offset := struct_info.specified_parameters[0].offset_info_constant_storage;
+//     assert(cs_offset != -1);
+    
+//     return struct_info.constant_storage[cs_offset].(*int).*;
+// }
+
+infer_static_string_capacity_from_runtime_size :: (size: int) -> int { return size - size_of(s64); }
+
 
 // imgui_input_static_string :: (
 //     label     : *u8, 
