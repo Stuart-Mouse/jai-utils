@@ -58,7 +58,7 @@ is_hex_digit :: (c: u8) -> bool {
         
 */
 try_lex_number :: (using scanner: *Scanner) -> string {
-    if file && (is_digit(file[0]) || (file.count > 1 && (file[0] == "+" || file[0] == "-") && is_digit(file[1]))) {
+    if file && (is_digit(file[0]) || (file.count > 1 && (file[0] == "+" || file[0] == "-" || file[0] == ".") && is_digit(file[1]))) {
         text := string.{ 0, file.data };
         
         if file[0] == "0" && advance(scanner) {
