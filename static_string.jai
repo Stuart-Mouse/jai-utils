@@ -39,6 +39,9 @@ operator  [] :: inline (s:  Static_String, index: int) ->  u8 { return  s.data[i
 // operator == :: inline (s1: Static_String, s2: Static_String) -> bool { return to_string(s1) == to_string(s2); }
 // operator == :: inline (s1: Static_String, s2: string) -> bool #symmetric { return to_string(*s1) == s2; }
 
+compare :: inline (s1: Static_String, s2: Static_String) -> bool { return to_string(s1) == to_string(s2); }
+compare :: inline (s1: Static_String, s2: string) -> bool #symmetric { return to_string(*s1) == s2; }
+
 for_expansion :: (s: *Static_String, body: Code, flags: For_Flags) #expand {
     REVERSE    :: cast(bool) flags & .REVERSE;
     DO_POINTER :: cast(bool) flags & .POINTER;

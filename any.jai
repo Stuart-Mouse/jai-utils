@@ -179,6 +179,12 @@ Any_Number :: struct {
     using value:  Number_Union;
     
     from :: to_any_number;
+    from :: any_to_any_number;
+    
+    can_store_type :: (T: Type) -> bool { return can_store_type(T.(*Type_Info)); };
+    can_store_type :: (T: *Type_Info) -> bool { 
+        return T.runtime_size <= 8; 
+    };
 }
 
 to_any :: inline (any: *Any_Number) -> Any { 
@@ -186,22 +192,22 @@ to_any :: inline (any: *Any_Number) -> Any {
 };
 
 get_as :: inline ($T: Type, any: Any_Number) -> T, bool #modify {
-    return T.(*Type_Info).runtime_size <= 8;
+    return Any_Number.can_store_type(T);
 } {
     // TODO: add case for reading through value_pointer later, if we decide to do that sort of thing.
     return (*any.value).(*T).*, any.type == type_info(T);
 }
 
 to_any_number :: inline (value: $T) -> Any_Number #modify {
-    return T.(*Type_Info).runtime_size <= 8;
+    return Any_Number.can_store_type(T);
 } { 
-    ret := Any_Number.{ type_info(T) }; 
+    ret := Any_Number.{ type = type_info(T) }; 
     (*ret.value).(*T).* = value;
     return ret;
 }
 
-to_any_number :: inline (value: Any) -> Any_Number {
-    assert(value.type.runtime_size <= 8);
+any_to_any_number :: inline (value: Any) -> Any_Number {
+    assert(Any_Number.can_store_type(value.type));
     
     ret := Any_Number.{ type = value.type }; 
     memcpy(*ret.value, value.value_pointer, value.type.runtime_size);
