@@ -13,6 +13,9 @@
 #load "arrays.jai";
 #load "scanner.jai";
 #load "static_string.jai";
+#load "static_array.jai";
+#load "fixed_bit_array.jai";
+#load "slot_array.jai";
 
 
 // ========== General Purpose ==========
@@ -80,6 +83,16 @@ tprintc :: (format_string: string, args: .. Any) -> *u8 {
 is_within_array :: inline (array: [] $T, ptr: *T) -> bool {
     // TODO: could also do check to make sure alignment is correct? Maybe as a baked parameter?
     return ptr >= array.data && ptr <= array.data + array.count - 1;
+}
+
+// NOTE: this is probably slow, ideally we could just use popcount on x86
+count_set_bits :: (n: int) -> int {
+    count := 0;
+    while n {
+        count += n & 1;
+        n <<= 1;
+    }
+    return count;
 }
 
 
