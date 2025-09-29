@@ -29,7 +29,8 @@ for_expansion :: (array: *Static_Array, body: Code, flags: For_Flags) #expand {
     REVERSE    :: cast(bool) flags & .REVERSE;
     DO_POINTER :: cast(bool) flags & .POINTER;
     
-    for <=REVERSE *=DO_POINTER `it, `it_index: array {
+    for <=REVERSE *=DO_POINTER `it, `it_index: array.data {
+        if it_index == array.count  break;
         #insert body;
     }
 }
