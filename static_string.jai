@@ -36,6 +36,7 @@ copy_to_string :: inline (s: *Static_String) -> string {
 operator *[] :: inline (s: *Static_String, index: int) -> *u8 { return *s.data[index]; }
 operator  [] :: inline (s:  Static_String, index: int) ->  u8 { return  s.data[index]; }
 
+// TODO: These are commented out because for some reason they lead to weird compiler errors with comparisons to struct literls without explicit types
 // operator == :: inline (s1: Static_String, s2: Static_String) -> bool { return to_string(s1) == to_string(s2); }
 // operator == :: inline (s1: Static_String, s2: string) -> bool #symmetric { return to_string(*s1) == s2; }
 
@@ -50,23 +51,35 @@ for_expansion :: (s: *Static_String, body: Code, flags: For_Flags) #expand {
     }
 }
 
-// NOTE: we could just check the runtime size of the struct and subtract size_of(int), but this feels more rigorous somehow?
-// get_static_string_capacity_through_reflection :: (a: Any) -> int {
-//     assert(a.type.type == .STRUCT);
+reflect_static_string :: (a: Any) -> count_ptr: *int, data: *void, capacity: int {
+    assert(is_static_string(a.type));
+    struct_info := a.type.(*Type_Info_Struct);
     
-//     struct_info := a.type.(*Type_Info_Struct);
-//     assert(struct_info.polymorph_source_struct == xx Static_String);
-//     assert(struct_info.specified_parameters[0].name == "capacity");
-//     assert(struct_info.specified_parameters[0].type == xx int);
+    assert(struct_info.specified_parameters[0].name == "capacity");
+    assert(struct_info.specified_parameters[0].type == xx int);
+    capacity_cs_offset := struct_info.specified_parameters[0].offset_into_constant_storage;
+    assert(capacity_cs_offset != -1);
     
-//     cs_offset := struct_info.specified_parameters[0].offset_info_constant_storage;
-//     assert(cs_offset != -1);
-    
-//     return struct_info.constant_storage[cs_offset].(*int).*;
-// }
+    return a.value_pointer.(*int), 
+           a.value_pointer + size_of(int),
+           struct_info.constant_storage[capacity_cs_offset].(*int).*;
+}
 
-infer_static_string_capacity_from_runtime_size :: (size: int) -> int { return size - size_of(s64); }
+is_static_string :: (a: Any) -> bool { return is_static_string(a.type); }
+is_static_string :: (ti: *Type_Info) -> bool {
+    return ti.type == .STRUCT && ti.(*Type_Info_Struct).polymorph_source_struct == type_info(Static_String(0)).polymorph_source_struct;
+}
 
+copy_string_to_any_static_string :: (a: Any, s: string) -> bool { 
+    if !is_static_string(a)  return false;
+    
+    count_ptr, data, capacity := reflect_static_string(a);
+    if s.count > capacity  return false;
+    
+    count_ptr.* = s.count;
+    memcpy(data, s.data, s.count);
+    return true;
+};
 
 // imgui_input_static_string :: (
 //     label     : *u8, 

@@ -46,3 +46,28 @@ pop :: inline (array: *Static_Array) -> array.T {
     defer array.count -= 1;
     return array.data[array.count];
 }
+
+reflect_static_array :: (a: Any) -> count_ptr: *int, data: *u8, capacity: int, element_type: *Type_Info {
+    assert(is_static_array(a.type));
+    struct_info := a.type.(*Type_Info_Struct);
+    
+    assert(struct_info.specified_parameters[0].name == "capacity");
+    assert(struct_info.specified_parameters[0].type == xx int);
+    capacity_cs_offset := struct_info.specified_parameters[0].offset_into_constant_storage;
+    assert(capacity_cs_offset != -1);
+    
+    assert(struct_info.specified_parameters[1].name == "T");
+    assert(struct_info.specified_parameters[1].type == xx Type);
+    type_cs_offset := struct_info.specified_parameters[1].offset_into_constant_storage;
+    assert(type_cs_offset != -1);
+    
+    return a.value_pointer.(*int), 
+           a.value_pointer + size_of(int),
+           struct_info.constant_storage[capacity_cs_offset].(*int).*,
+           struct_info.constant_storage[type_cs_offset].(*Type).*.(*Type_Info);
+}
+
+is_static_array :: (a: Any) -> bool { return is_static_array(a.type); }
+is_static_array :: (ti: *Type_Info) -> bool {
+    return ti.type == .STRUCT && ti.(*Type_Info_Struct).polymorph_source_struct == type_info(Static_String(0)).polymorph_source_struct;
+}
