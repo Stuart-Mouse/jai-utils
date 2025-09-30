@@ -53,10 +53,12 @@ index_is_occupied :: inline (array: Slot_Array, index: int) -> bool {
     return is_valid_index(array, index) && array.occupied[index];
 }
 
+// TODO: optimize to just count set bits manually
+//       may need to make sure out-of-bounds bits at end of last slot are properly zeroed
 get_count_occupied :: (array: Slot_Array) -> int {
     count := 0;
-    for array.occupied.slots {
-        count += count_set_bits(it_index);
+    for :only_set array.occupied {
+        count += 1;
     }
     return count;
 }
