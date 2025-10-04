@@ -292,7 +292,7 @@ Any_Array :: struct {
 }
 
 make_any_array :: (any: Any) -> Any_Array {
-    assert(any.type.type == .ARRAY);
+    assert(any.type.type == .ARRAY, "Cannot make an Any_Array from type '%'.", as_type(any.type));
     return .{ xx any.type, any.value_pointer };
 }
 

@@ -61,13 +61,15 @@ reflect_static_array :: (a: Any) -> count_ptr: *int, data: *u8, capacity: int, e
     type_cs_offset := struct_info.specified_parameters[1].offset_into_constant_storage;
     assert(type_cs_offset != -1);
     
-    return a.value_pointer.(*int), 
-           a.value_pointer + size_of(int),
-           struct_info.constant_storage[capacity_cs_offset].(*int).*,
-           struct_info.constant_storage[type_cs_offset].(*Type).*.(*Type_Info);
+    
+    count_ptr    := a.value_pointer.(*int);
+    data         := (a.value_pointer + size_of(int)).(*u8);
+    capacity     := (struct_info.constant_storage.data + capacity_cs_offset).(*int).*;
+    element_type := (struct_info.constant_storage.data + type_cs_offset).(*Type).*.(*Type_Info);
+    return count_ptr, data, capacity, element_type;
 }
 
 is_static_array :: (a: Any) -> bool { return is_static_array(a.type); }
 is_static_array :: (ti: *Type_Info) -> bool {
-    return ti.type == .STRUCT && ti.(*Type_Info_Struct).polymorph_source_struct == type_info(Static_String(0)).polymorph_source_struct;
+    return ti.type == .STRUCT && ti.(*Type_Info_Struct).polymorph_source_struct == type_info(Static_Array(0, void)).polymorph_source_struct;
 }

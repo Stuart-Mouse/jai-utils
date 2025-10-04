@@ -51,7 +51,7 @@ for_expansion :: (s: *Static_String, body: Code, flags: For_Flags) #expand {
     }
 }
 
-reflect_static_string :: (a: Any) -> count_ptr: *int, data: *void, capacity: int {
+reflect_static_string :: (a: Any) -> count_ptr: *int, data: *u8, capacity: int {
     assert(is_static_string(a.type));
     struct_info := a.type.(*Type_Info_Struct);
     
@@ -60,9 +60,10 @@ reflect_static_string :: (a: Any) -> count_ptr: *int, data: *void, capacity: int
     capacity_cs_offset := struct_info.specified_parameters[0].offset_into_constant_storage;
     assert(capacity_cs_offset != -1);
     
-    return a.value_pointer.(*int), 
-           a.value_pointer + size_of(int),
-           struct_info.constant_storage[capacity_cs_offset].(*int).*;
+    count_ptr := a.value_pointer.(*int);
+    data      := (a.value_pointer + size_of(int)).(*u8);
+    capacity  := (struct_info.constant_storage.data + capacity_cs_offset).(*int).*;
+    return count_ptr, data, capacity;
 }
 
 is_static_string :: (a: Any) -> bool { return is_static_string(a.type); }
