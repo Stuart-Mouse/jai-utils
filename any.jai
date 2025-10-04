@@ -181,10 +181,16 @@ Any_Number :: struct {
     from :: to_any_number;
     from :: any_to_any_number;
     
-    can_store_type :: (T: Type) -> bool { return can_store_type(T.(*Type_Info)); };
-    can_store_type :: (T: *Type_Info) -> bool { 
-        return T.runtime_size <= 8; 
+    zero_of_type :: inline (T: Type) -> Any_Number { 
+        return zero_of_type(T.(*Type_Info)); 
     };
+    zero_of_type :: inline (T: *Type_Info) -> Any_Number { 
+        assert(can_store_type(T));
+        return Any_Number.{ type = T }; 
+    };
+    
+    can_store_type :: inline (T: Type) -> bool { return can_store_type(T.(*Type_Info)); };
+    can_store_type :: inline (T: *Type_Info) -> bool { return T.runtime_size <= 8; };
 }
 
 to_any :: inline (any: *Any_Number) -> Any { 
