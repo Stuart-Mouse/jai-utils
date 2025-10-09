@@ -40,9 +40,10 @@ get_next_slot :: (array: *Slot_Array, set_occupied := false) -> *array.T, int {
     return slot, index;
 }
 
-get_element_index :: (array: *Slot_Array, element: *array.T) -> int {
-    assert(element >= array.slots.data && element < array.slots.data + array.capacity);
-    return (element.(s64) - array.slots.data.(s64)) / size_of(array.T);
+// TODO: maybe also check the alignment of the element
+get_element_index :: (array: *Slot_Array, element: *array.T) -> bool, int {
+    if (element < array.slots.data || element >= array.slots.data + array.capacity) return false, -1;
+    return true, (element.(s64) - array.slots.data.(s64)) / size_of(array.T);
 }
 
 is_valid_index :: inline (array: Slot_Array, index: int) -> bool {
@@ -68,8 +69,8 @@ set_index_occupied :: inline (array: *Slot_Array, index: int, $$occupied: bool) 
 }
 
 set_index_occupied :: inline (array: *Slot_Array, element: *array.T, $$occupied: bool) {
-    index := get_element_index(array, element);
-    set_index_occupied(array, index, occupied);
+    ok, index := get_element_index(array, element);
+    if ok  set_index_occupied(array, index, occupied);
 }
 
 for_expansion :: (array: *Slot_Array, body: Code, flags: For_Flags) #expand {

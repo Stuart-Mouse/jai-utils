@@ -1,7 +1,7 @@
 // ========== General ==========
 
-Null_Any :: Any.{};
-Void_Any :: Any.{ type = type_info(void) };
+NULL_ANY :: Any.{};
+VOID_ANY :: Any.{ type = type_info(void) };
 
 compare_any :: (a: Any, b: Any) -> bool {
     if a.type != b.type  return false;
@@ -9,9 +9,9 @@ compare_any :: (a: Any, b: Any) -> bool {
 }
 
 // for when you want to quickly cast an any to a pointer to the expected type, and assert if the type is wrong
-any_isa :: inline ($T: Type, a: Any) -> *T {
-    assert(a.type == xx T);
-    return a.value_pointer.(*T);
+any_isa :: inline (any: Any, $T: Type) -> *T {
+    // assert(any.type == xx T, "any.type == %, T == %", as_type(any.type), T);
+    return ifx any.type == xx T then any.value_pointer.(*T);
 }
 
 
@@ -58,7 +58,7 @@ get_member :: (any_struct: Any, member_name: string) -> bool, Any, *Type_Info_St
         }
         return true, Any.{ member_info.type, any_struct.value_pointer + member_info.offset_in_bytes }, member_info;
     }
-    return false, Null_Any, null;
+    return false, NULL_ANY, null;
 }
 
 // NOTE: this version will only accept members that are directly on the given struct, not fields that were retrieved through a using.
@@ -129,10 +129,6 @@ memcpy_any :: (dst: Any, src: Any) {
     memcpy(dst.value_pointer, src.value_pointer, src.type.runtime_size);
 }
 
-isa :: inline (any: Any, $T: Type) -> *T {
-    // assert(any.type == xx T, "any.type == %, T == %", as_type(any.type), T);
-    return ifx any.type == xx T then any.value_pointer.(*T);
-}
 
 // ========== Any_Proc ==========
 
@@ -309,7 +305,7 @@ get_count_and_data :: inline (array: Any_Array) -> (int, *void) {
 get_index :: inline (array: Any_Array, index: int) -> Any, bool {
     count, data := get_count_and_data(array);
     if index < 0 || index >= count {
-        return Null_Any, false;
+        return NULL_ANY, false;
     }
     return Any.{ array.element_type, data + (index * array.element_type.runtime_size) }, true;
 }
