@@ -6,14 +6,32 @@ as_type :: inline (ti: *Type_Info) -> Type { return (*ti).(*Type).*; }
 is_numeric_type :: inline (T: Type) -> bool {
     return is_numeric_type(T.(*Type_Info));
 }
-
 is_numeric_type :: inline (ti: *Type_Info) -> bool {
-    return ti && (ti.type == .INTEGER || ti.type == .FLOAT);
+    return ti != null && (ti.type == .INTEGER || ti.type == .FLOAT);
 }
 
 is_union_type :: (ti: *Type_Info) -> bool {
     return ti.type == .STRUCT && (ti.(*Type_Info_Struct).textual_flags & .UNION);
 }
+
+is_aggregate :: inline (T: Type) -> bool { return is_aggregate(T.(*Type_Info)); }
+is_aggregate :: inline (ti: *Type_Info) -> bool {
+    if ti.type == {
+        case .INTEGER;   return false;
+        case .FLOAT;     return false;
+        case .ENUM;      return false;
+        case .BOOL;      return false;
+        case .POINTER;   return false;
+        case .PROCEDURE; return false;
+        case .TYPE;      return false;
+    }
+    return true;
+}
+
+is_pointer_to :: inline (type: *Type_Info, target: *Type_Info) -> bool {
+    return type != null && type.type == .POINTER && type.(*Type_Info_Pointer).pointer_to == target;
+}
+
 
 // two types are considered equivalent if we can memcpy between the two types validly.
 are_types_equivalent :: (ti1: *Type_Info, ti2: *Type_Info) -> bool {
