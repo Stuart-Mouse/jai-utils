@@ -18,7 +18,7 @@ any_isa :: inline (any: Any, $T: Type) -> *T {
 // ========== Allocation ==========
 
 // A more convenient version of Dynamic_New which gives you back an Any
-New_Any :: inline (ti: *Type_Info, initialized := true) -> Any {
+New_Any :: inline (ti: *Type_Info, $$initialized := true) -> Any {
     memory := Dynamic_New(ti, initialized);
     return ifx memory then Any.{ ti, memory } else Any.{};
 }
@@ -34,14 +34,34 @@ Dynamic_New :: inline (type: *Type_Info, $$initialized := true) -> *void {
 }
 
 initialize_any :: (any: Any) {
-    if any.type.type == .STRUCT {
-        tis := any.type.(*Type_Info_Struct);
-        if tis.initializer  tis.initializer(any.value_pointer);
-        else                memset(any.value_pointer, 0, any.type.runtime_size);
-    } else {
+    _any := any;
+    while _any.type.type == .VARIANT {
+        _any.type = _any.type.(*Type_Info_Variant).variant_of;
+    }
+    
+    if _any.type.type == {
+      case  .STRUCT;
+        struct_info := _any.type.(*Type_Info_Struct);
+        if struct_info.initializer  
+            then struct_info.initializer(_any.value_pointer);
+            else memset(_any.value_pointer, 0, _any.type.runtime_size);
+        
+      case .ARRAY;
+        array := Any_Array.from(_any);
+        if array.array_type == {
+          case .FIXED;
+            for array  initialize_any(it);
+          case .VIEW;
+            memset(_any.value_pointer, 0, _any.type.runtime_size);
+          case .RESIZABLE;
+            memset(_any.value_pointer, 0, _any.type.runtime_size);
+            array.value_pointer.(*Resizable_Array).allocator = context.allocator;
+        }
+        
+      case;
         // Non-structs always default to 0.
         // @Incomplete: Here we are not handling variants, or arrays of things that might have initializers.
-        memset(any.value_pointer, 0, any.type.runtime_size);
+        memset(_any.value_pointer, 0, _any.type.runtime_size);
     }
 }
 
@@ -372,6 +392,8 @@ resize :: (array: Any_Array, new_count: int, $initialize := false) {
     #if initialize  init_range(array, old_count, new_count - old_count);
 }
 
+// TODO: maybe init_range should just use our dynamic array_view and then call initialize_any for each element
+//       that could be slightly slower, but it would be more simple and robust to changes in how we intitialize Any's
 init_range :: (array: Any_Array, begin: s64, count: s64) {
     if count <= 0  return;
     
