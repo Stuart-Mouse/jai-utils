@@ -5,7 +5,8 @@
 */
 
 Fixed_Bit_Array :: struct(count: int) {
-    slots: [count >> 6] s64;
+    #assert(count > 0);
+    slots: [#run max(count >> 6, 1)] s64;
 }
 
 set_bit :: (using array: *Fixed_Bit_Array, i: int) {
