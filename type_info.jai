@@ -3,13 +3,14 @@
 
 as_type :: inline (ti: *Type_Info) -> Type { return (*ti).(*Type).*; }
 
-is_numeric_type :: inline (T: Type) -> bool {
-    return is_numeric_type(T.(*Type_Info));
-}
+is_numeric_type :: inline (T: Type) -> bool { return is_numeric_type(T.(*Type_Info)); }
 is_numeric_type :: inline (ti: *Type_Info) -> bool {
-    return ti != null && (ti.type == .INTEGER || ti.type == .FLOAT);
+    if ti == null  return false;
+    while ti.type == .VARIANT  ti = ti.(*Type_Info_Variant).variant_of;
+    return ti.type == .INTEGER || ti.type == .FLOAT || ti.type == .ENUM;
 }
 
+is_union_type :: inline (T: Type) -> bool { return is_union_type(T.(*Type_Info)); }
 is_union_type :: (ti: *Type_Info) -> bool {
     return ti.type == .STRUCT && (ti.(*Type_Info_Struct).textual_flags & .UNION);
 }
