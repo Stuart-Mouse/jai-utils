@@ -95,6 +95,20 @@ count_set_bits :: (n: int) -> int {
     return count;
 }
 
+has_all_flags :: inline (e: $E, flags: E) -> bool #modify {
+    return is_enum_flags(E), "Type E must be an enum_flags.";
+} {
+    return e & flags == flags;
+}
+
+has_any_flags :: inline (e: $E, flags: E) -> bool #modify {
+    return is_enum_flags(E), "Type E must be an enum_flags.";
+} {
+    return e & flags != 0;
+}
+
+// just because it is nicer to read in many cases
+has_flag :: has_all_flags;
 
 // ========== Math-ish ==========
 

@@ -29,6 +29,11 @@ is_aggregate :: inline (ti: *Type_Info) -> bool {
     return true;
 }
 
+is_enum_flags :: inline (T: Type) -> bool { return is_enum_flags(T.(*Type_Info)); }
+is_enum_flags :: inline (ti: *Type_Info) -> bool {
+    return ti && ti.type == .ENUM && ti.(*Type_Info_Enum).enum_type_flags & .FLAGS == .FLAGS;
+}
+
 is_pointer_to :: inline (type: *Type_Info, target: *Type_Info) -> bool {
     return type != null && type.type == .POINTER && type.(*Type_Info_Pointer).pointer_to == target;
 }
@@ -53,7 +58,7 @@ are_types_equivalent :: (ti1: *Type_Info, ti2: *Type_Info) -> bool {
         // would we want to do a more structural check here?
         ti1_enum := ti1.(*Type_Info_Enum);
         ti2_enum := ti2.(*Type_Info_Enum);
-        return  ti1_enum.internal_type.signed == ti2_enum.internal_type.signed; 
+        return ti1_enum.internal_type.signed == ti2_enum.internal_type.signed; 
         
       case .INTEGER;
         ti1_integer := ti1.(*Type_Info_Integer);
