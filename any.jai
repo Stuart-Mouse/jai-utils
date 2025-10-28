@@ -14,6 +14,12 @@ any_isa :: inline (any: Any, $T: Type) -> *T {
     return ifx any.type == xx T then any.value_pointer.(*T);
 }
 
+// this is primarily so that we can get an Any of an Any, 
+// which is not possible when using implicit conversion to Any
+make_any :: inline (t: *$T) -> Any {
+    return Any.{ xx T, t };
+}
+
 
 // ========== Allocation ==========
 
@@ -99,6 +105,8 @@ get_member :: (any_struct: Any, member_info: *Type_Info_Struct_Member) -> member
 Struct_Member_Iterator_Flags :: enum_flags {
     SKIP_CONSTANT;
     SKIP_PLACE;
+    
+    SKIP_CONSTANT_AND_PLACE :: SKIP_CONSTANT | SKIP_PLACE;
 }
 
 // also provides 'it_info' iterator pointing to Type_Info_Struct_Member
