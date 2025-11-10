@@ -109,3 +109,22 @@ clone_from_view :: (array: *Slot_Array, view: [] array.T) -> bool {
     for view  get_next_slot(array, true).* = it;
     return true;
 }
+
+
+
+map_to_view :: (array: Slot_Array, $proc: (*array.T) -> $R) -> [] R {
+    count := get_count_occupied(array);
+    view  := NewArray(count, R, initialized = false); 
+    index := 0;
+    for *array {
+        view[index] = proc(it);
+        index += 1;
+    }
+    return view;
+}
+
+map_from_view :: (array: *Slot_Array, view: [] $R, $proc: (*R) -> array.T) -> bool {
+    if array.capacity < view.count  return false;
+    for *view  get_next_slot(array, true).* = proc(it);
+    return true;
+}
