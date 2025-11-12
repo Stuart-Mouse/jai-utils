@@ -38,6 +38,12 @@ is_pointer_to :: inline (type: *Type_Info, target: *Type_Info) -> bool {
     return type != null && type.type == .POINTER && type.(*Type_Info_Pointer).pointer_to == target;
 }
 
+get_variant_base_type :: inline (T: Type) -> Type { return as_type(get_variant_base_type(T.(*Type_Info))); }
+get_variant_base_type :: inline (ti: *Type_Info) -> *Type_Info {
+    while ti.type == .VARIANT  ti = ti.(*Type_Info_Variant).variant_of;
+    return ti;
+}
+
 
 // two types are considered equivalent if we can memcpy between the two types validly.
 are_types_equivalent :: (ti1: *Type_Info, ti2: *Type_Info) -> bool {
