@@ -367,7 +367,7 @@ is_null :: (array: Any_Array) -> bool {
 get_element_index :: (array: Any_Array, element_pointer: *void) -> int {
     count, data := get_count_and_data(array);
     index := (element_pointer - data) / array.element_type.runtime_size;
-    assert(index >= 0 && index < count, "element_pointer % was not within valid array data range: %, %", data, data + count * array.element_type.runtime_size);
+    assert(index >= 0 && index < count, "element_pointer % was not within valid array data range: %, %. calculated index: %", element_pointer, data, data + count * array.element_type.runtime_size, index);
     // assert((element_pointer - data) % array.element_type.runtime_size == 0, "element_pointer was not properly aligned");
     return index;
 }
