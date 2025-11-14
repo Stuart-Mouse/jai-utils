@@ -16,6 +16,7 @@
 #load "static_array.jai";
 #load "fixed_bit_array.jai";
 #load "slot_array.jai";
+#load "dynamic_procedure_call.jai";
 
 
 // ========== General Purpose ==========
