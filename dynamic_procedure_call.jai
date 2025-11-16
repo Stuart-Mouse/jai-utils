@@ -131,7 +131,7 @@ call_procedure_unsafe :: (procedure: $P, arguments: [] *void, return_values: [] 
 */
 
 register_procedure_type_for_dynamic_call :: inline ($P: Type) #modify {
-    return P.(*Type_Info).type == .PROCEDURE, "P must be a procedure type."; 
+    return P.(*Type_Info).type == .PROCEDURE, tprint("P must be a procedure type, but it was %", P); 
 } {
     for procedure_wrappers if it.type == xx P  return;
     array_add(*procedure_wrappers, .{ xx P, xx #procedure_of_call call_procedure(null.(P), .[], .[]) });
