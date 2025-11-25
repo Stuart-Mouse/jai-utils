@@ -10,6 +10,7 @@
 
 #load "any.jai";
 #load "type_info.jai";
+#load "procedure_info.jai";
 #load "arrays.jai";
 #load "scanner.jai";
 #load "static_string.jai";

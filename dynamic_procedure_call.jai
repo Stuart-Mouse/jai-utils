@@ -31,7 +31,7 @@ call_procedure :: (procedure: $P, arguments: [] Any, return_values: [] Any, chec
             formal := proc_info.argument_types[it];
             actual := arguments[it].type;
             if formal != actual {
-                log("Incorrect type provided for argument % in dynamic procedure call. Expected type %, but got %.", it, formal, actual);
+                log("Incorrect type provided for argument % in dynamic procedure call. Expected type %, but got %.", it, as_type(formal), as_type(actual));
                 return false;
             }
         }
@@ -44,7 +44,7 @@ call_procedure :: (procedure: $P, arguments: [] Any, return_values: [] Any, chec
             formal := proc_info.return_types[it];
             actual := return_values[it].type;
             if formal != actual {
-                log("Incorrect type provided for return value % in dynamic procedure call. Expected type %, but got %.", it, formal, actual);
+                log("Incorrect type provided for return value % in dynamic procedure call. Expected type %, but got %.", it, as_type(formal), as_type(actual));
                 return false;
             }
         }
@@ -150,3 +150,10 @@ try_calling_procedure_with_wrapper :: (proc_info: *Type_Info_Procedure, proc_ptr
     log("Error: % has not been registered for use in a dynamic call.", (*proc_info).(*Type).*);
     return false;
 }
+
+
+
+
+
+
+

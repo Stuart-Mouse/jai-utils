@@ -36,7 +36,7 @@ get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_ti
         return xx node;
         
       case .IDENT;
-        ident := node.(*Compiler.Code_Ident);
+        ident := node.(*Code_Ident);
         return get_procedure_header(ident.resolved_declaration);
         
       case .DIRECTIVE_BAKE;
@@ -46,6 +46,10 @@ get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_ti
       case .DECLARATION;
         declaration := node.(*Code_Declaration);
         return get_procedure_header(declaration.expression);
+        
+      case .DIRECTIVE_INSERT;
+        insert := node.(*Code_Directive_Insert);
+        return get_procedure_header(insert.expansion);
         
       case .PROCEDURE_CALL;
         call := node.(*Code_Procedure_Call);
@@ -58,14 +62,18 @@ get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_ti
 }
 
 Procedure_Info :: struct {
-    procedure_expression:         string;
-    arguments:                    [] Argument;
-    returns:                      [] Argument;
-    get_default_argument_value:   #type (int) -> bool, Any;
+    procedure_expression:       string;
+    type:                       Type;
+    arguments:                  [] Argument;
+    returns:                    [] Argument;
+    
+    // TODO: maybe #if to make this optional
+    dynamic_call_wrapper:       Wrapped_Procedure_Call;
     
     Argument :: struct {
-        name:   string;
-        flags:  Flags;
+        name:           string;
+        flags:          Flags;
+        get_default:    #type () -> Any;
         
         Flags :: enum_flags { 
             NONE :: 0; 
@@ -80,37 +88,37 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info {
     remove_trailing_newline :: (s: string) -> string {
         return ifx s && s[s.count-1] == "\n" then string.{ s.count-1, s.data } else s;
     }
-
+    
     #insert -> string {
         builder: String_Builder;
         
-        root := Compiler.compiler_get_nodes(procedure_expression);
+        root := compiler_get_nodes(procedure_expression);
         proc_header := get_procedure_header(root);
         
         if proc_header == null {
             append(*builder, "Warning: Unable to resolve procedure header from expression: ");
-            PP.print_expression(*builder, root);
+            Program_Print.print_expression(*builder, root);
             log(builder_to_string(*builder));
             return "return .{};";
         }
         
         assert(proc_header.procedure_flags & .POLYMORPHIC == 0, "Cannot get procedure info for a polymorphic procedure.");
         
-        proc_info := proc_header.type.(*Type_Info_Procedure);
-        append(*builder, "procedure := #insert procedure_expression;\n");
-        append(*builder, "proc_info :: type_info(type_of(procedure));\n");
-        for 0..proc_info.argument_types.count-1 {
-            print(*builder, "Ta%1 :: #run (*proc_info.argument_types[%1]).(*Type).*;\n", it);
+        proc_type := proc_header.type.(*Type_Info_Procedure);
+        append(*builder, "procedure :: #insert procedure_expression;\n");
+        append(*builder, "proc_type :: type_info(type_of(procedure));\n");
+        for 0..proc_type.argument_types.count-1 {
+            print(*builder, "Ta%1 :: #run (*proc_type.argument_types[%1]).(*Type).*;\n", it);
         }
         
         
         append(*builder, "procedure_expression_string :: #run remove_trailing_newline(#string __PROCEDURE_EXPRESSION__\n");
-        PP.print_expression(*builder, root);
+        Program_Print.print_expression(*builder, root);
         append(*builder, "\n__PROCEDURE_EXPRESSION__);\n");
         
-        // generate argument names array
+        // generate arguments array
         {
-            append(*builder, "arguments :: Argument.[ ");
+            append(*builder, "arguments :: Procedure_Info.Argument.[\n");
             for proc_header.arguments {
                 print(*builder, ".{ name = \"%\", ", it.name);
                 
@@ -118,66 +126,251 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info {
                 append(*builder, "flags = .NONE");
                 if it.expression {
                     append(*builder, " | .HAS_DEFAULT_VALUE");
-                    do_OR = true;
                 }
                 if it.type_inst && (it.type_inst.inst_flags & .VARARGS) {
                     append(*builder, " | .IS_VARARGS");
                 }
+                append(*builder, ", ");
                 
-                append(*builder, "},\n")
+                if it.expression {
+                    append(*builder, "get_default = () -> Any { ");
+                    print(*builder, "ret := New_Any(xx Ta%, initialized = false); ", it_index);
+                    print(*builder, "ret.value_pointer.(*Ta%).* = ", it_index);
+                    Program_Print.print_expression(*builder, it.expression);
+                    append(*builder, "; return ret; }, ");
+                }
+                
+                append(*builder, "},\n");
                 // if it_index != proc_header.arguments.count-1 {
                 //     append(*builder, ", ");
                 // }
             }
-            append(*builder, " ];\n");
+            append(*builder, "];\n");
         }
         
-        // generate return value names array
+        // generate return values array
         {
-            append(*builder, "returns :: Argument.[ ");
+            append(*builder, "returns :: Procedure_Info.Argument.[ ");
             for proc_header.returns {
                 print(*builder, ".{ name = \"%\" },\n", it.name);
             }
             append(*builder, " ];\n");
         }
         
-        // generate get_default_argument_value for the procedure
-        {
-            append(*builder, "get_default_argument_value :: (index: int) -> bool, Any {\n");
-            append(*builder, "ret: Any;\n");
-            append(*builder, "if index == {\n");
-            for proc_header.arguments {
-                // TODO: check if this can actually be null. I am just assuming that it could be if we are given a polymorphic procedure.
-                assert(it.type != null, "Type was not present on argument declaration node!");
-                
-                print(*builder, "case %;\n", it_index);
-                if it.expression {
-                    print(*builder, "ret = New_Any(xx Ta%, initialized = false);\n", it_index);
-                    print(*builder, "ret.value_pointer.(*Ta%).* = ", it_index);
-                    PP.print_expression(*builder, it.expression);
-                    append(*builder, ";\n");
-                } else {
-                    append(*builder, "return false, Any.{};\n");
-                }
-            }
-            append(*builder, "}\n");
-            append(*builder, "return ret.value_pointer != null, ret;\n}\n");
-        }
+        append(*builder, "dynamic_call_wrapper :: #procedure_of_call call_procedure(null.(type_of(procedure)), .[], .[]);\n");
         
-        append(*builder, "return .{ procedure_expression_string, argument_names, return_value_names, get_default_argument_value };\n");
+        append(*builder, #string JAI
+        return .{ 
+            procedure_expression_string, 
+            type_of(procedure), 
+            arguments, 
+            returns, 
+            xx dynamic_call_wrapper 
+        };
+        JAI);
         
         str := builder_to_string(*builder);
-        // log(str);
         return str;
     }
 }
 
 get_default_argument_value :: (info: Procedure_Info, argument_name: string) -> bool, Any {
-    for info.argument_names {
-        if it == argument_name { 
-            ok, value := info.get_default_argument_value(it_index);
-            return ok, value;
+    for info.arguments {
+        if it.name == argument_name { 
+            if !(it.flags & .HAS_DEFAULT_VALUE)  return false, Any.{};
+            return true, it.get_default();
         }
     }
     return false, Any.{};
+}
+
+
+
+Dynamic_Procedure_Callback :: struct {
+    using procedure_info:   Procedure_Info;
+    procedure_pointer:      *void;
+    arguments_provided:     [] Any;
+}
+
+call :: (callback: Dynamic_Procedure_Callback, returns: [] Any) -> bool {
+    arguments := array_copy(callback.arguments_provided);
+    for callback.procedure_info.arguments {
+        // if value pointer is null, that means we need a default value
+        if arguments[it_index].value_pointer == null {
+            if it.get_default == null {
+                log("Error: Expected a valid get_default() for argument '%' in dynamic procedure callback.", );
+            }
+            arguments[it_index] = it.get_default();
+        }
+    }
+    return callback.dynamic_call_wrapper(callback.procedure_pointer, arguments, returns, true);
+}
+
+// TODO: We should have a valid code path for when procedure call expression does not allow us to get a Procedure_Info,
+//       since we still want to be able to make a dynamic procedure call where arguments are passed purely by index.
+// TODO: check arguments_sorted, see what this provides. are unfilled formal arguments null? are they 
+// TODO: also check what happend if we have varargs arguments in procedure_call_expression. do varargs get grouped into array before we get the nodes, or does that happen later?
+make_dynamic_procedure_callback :: ($procedure_call_expression: Code) -> Dynamic_Procedure_Callback #expand {
+    /* 
+        TODO: any way to simplify this? This is really gross...
+        we can't just do the following, because #procedure_of_call evaluates before the #insert:
+            PROCEDURE_OF_CALL :: #procedure_of_call #insert procedure_call_expression;
+        so instead we have to do a wonky scoped insert that contains the #procedure_of_call internally
+    */
+    PROCEDURE_OF_CALL :: #insert,scope(procedure_call_expression) -> string {
+        builder: String_Builder;
+        append(*builder, "#procedure_of_call ");
+        Program_Print.print_expression(*builder, compiler_get_nodes(procedure_call_expression));
+        append(*builder, ";\n");
+        return builder_to_string(*builder);
+    }
+    
+    PROCEDURE_INFO :: #run get_procedure_info(PROCEDURE_OF_CALL);
+    PROCEDURE_TYPE_INFO :: type_info(#run PROCEDURE_INFO.type);
+    
+    callback := Dynamic_Procedure_Callback.{
+        procedure_info     = PROCEDURE_INFO,
+        procedure_pointer  = xx PROCEDURE_OF_CALL,
+        arguments_provided = NewArray(PROCEDURE_INFO.arguments.count, Any)
+    };
+    
+    #insert -> string {
+        proc_call := compiler_get_nodes(procedure_call_expression).(*Code_Procedure_Call);
+        
+        // TODO: allow matching arguments by index
+        for provided: proc_call.arguments_unsorted {
+            assert(provided.name != null, "Arguments to make_dynamic_procedure_callback must be provided by name.");
+        }
+        
+        // TODO: by using arguments_sorted, we should be able to avoid a lot of complicaiton around matching parameters manually, because the ocmpiler just does that
+        // so we should leverage that here, but still will need to manually check if context dereferneces are used as default values
+        // and will probably need special formatting for make_varargs case as well
+        
+        builder: String_Builder;
+        for formal, formal_index: PROCEDURE_INFO.arguments {
+            for provided: proc_call.arguments_unsorted {
+                if provided.name.name == formal.name {
+                    print(*builder, "callback.arguments_provided[%] = ", formal_index);
+                    
+                    do_cast := is_numeric_type(provided.expression.type);
+                    if do_cast  append(*builder, "(");
+                    Program_Print.print_expression(*builder, provided.expression);
+                    if do_cast  print(*builder, ").(%)", as_type(provided.expression.type));
+                    
+                    append(*builder, ";\n");
+                    continue formal;
+                }
+            }
+            
+            // NOTE: We check that a default value exists here, but the actual call to get_default will occur at the call site.
+            //       This is done so that we have the correct context when evaluating context-dependent defaults values.
+            assert(formal.flags & .HAS_DEFAULT_VALUE != 0, "Argument '%' was not provided to make_dynamic_procedure_callback, and there is no default value.", formal.name);
+        }
+        return builder_to_string(*builder);
+    }
+    
+    return callback;
+}
+
+
+
+
+#scope_file
+
+#import "Compiler";
+Program_Print :: #import "Program_Print";
+
+
+// with_builder :: ($code: Code) -> string {
+//     builder: String_Builder;
+    
+//     // find builder argument and pass this builder, then insert code nodes
+//     #insert -> Code {
+        
+//     }
+    
+//     return builder_to_string(*builder);
+// }
+
+print_code_nodes :: (builder: *String_Builder, node: *Code_Node, indent := 0) {
+    if node == null  return;
+
+    put :: (format: string, args: ..Any, newline := true) #expand {
+        for 1..indent  append(builder, "  ");
+        print(builder, format, ..args);
+        if newline  append(builder, "\n");
+    }
+    
+    put("kind: %", node.kind);
+    put("type: %", as_type(node.type));
+    // put("expression: ", newline = false);
+    // Program_Print.print_expression(builder, node);
+    // append(builder, "\n");
+    
+    if node.kind == {
+      case .LITERAL;
+        literal := node.(*Code_Literal);
+        put("value_type: %", literal.value_type);
+        // TODO: get_literal_value_as_any, print that here. 
+        
+      case .IDENT;
+        ident := node.(*Code_Ident);
+        put("name: %", ident.name);
+        put("resolved_declaration: %", ident.resolved_declaration);
+        print_code_nodes(builder, ident.resolved_declaration, indent + 1);
+        // TODO: maybe we should collect all resolved declarations and display them at the end
+        //       could just show the pointer or serial of the resolved declaration here
+        
+      case .DECLARATION;
+        decl := node.(*Code_Declaration);
+        print_code_nodes(builder, decl.expression, indent + 1);
+        
+        // Program_Print.print_expression(builder, decl.expression);
+        
+      case .DIRECTIVE_INSERT;
+        insert := node.(*Code_Directive_Insert);
+        print_code_nodes(builder, insert.expansion, indent + 1);
+        
+      case .UNARY_OPERATOR;
+        op := node.(*Code_Unary_Operator);
+        str := operator_to_string(xx op.operator_type);
+        str = ifx str else string.{ 1, xx *op.operator_type };
+        put("operator_type: %", );
+        put("subexpression:");
+        print_code_nodes(builder, op.subexpression, indent + 1);
+        
+      case .BINARY_OPERATOR;
+        op := node.(*Code_Binary_Operator);
+        str := operator_to_string(xx op.operator_type);
+        str = ifx str else string.{ 1, xx *op.operator_type };
+        put("operator_type: %", str);
+        put("left:");
+        print_code_nodes(builder, op.left, indent + 1);
+        put("right:");
+        print_code_nodes(builder, op.right, indent + 1);
+        
+      case .PROCEDURE_CALL;
+        call := node.(*Code_Procedure_Call);
+        put("procedure_expression: %", call.procedure_expression);
+        print_code_nodes(builder, call.procedure_expression, indent + 1);
+        put("resolved_procedure_expression: %", call.resolved_procedure_expression);
+        print_code_nodes(builder, call.resolved_procedure_expression, indent + 1);
+        // put("overloads:");
+        // for overloads.* {
+            // print_code_nodes(builder, it, indent + 1);
+        // }
+        if call.flags {
+            put("flags: %", call.flags);
+            if call.flags & .INLINE_YES { put("  INLINE_YES"); }
+            if call.flags & .INLINE_NO { put("  INLINE_NO"); }
+            if call.flags & .RETURNS_PROCEDURE_POINTER_ONLY { put("  RETURNS_PROCEDURE_POINTER_ONLY"); }
+            if call.flags & .NO_DEBUG { put("  NO_DEBUG"); }
+            if call.flags & .IS_MODULE_PARAMETERS { put("  IS_MODULE_PARAMETERS"); }
+        }
+        
+      case .DIRECTIVE_BAKE;
+        bake := node.(*Code_Directive_Bake);
+        put("procedure_call:");
+        print_code_nodes(builder, bake.procedure_call, indent + 1);
+    }
 }
