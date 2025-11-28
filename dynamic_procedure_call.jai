@@ -3,7 +3,7 @@
         where arguments and return values are provided as `[] Any`.
     Using `#procedure_of_call call_procedure(null.(P), .[], .[])` we can generate a thin wrapper proc 
         that will handle the marshalling of arguments and return types from/to the provided Anys.
-    This generated procedure will match the interface of a `Wrapped_Procedure_Call`,
+    This generated procedure will match the interface of a `Procedure_Call_Wrapper`,
         allowing us to store all the generated wrapper procs in a single array.
     We need only generate one such wrapper for each type of procedure, so if two procedures have the same exact signature,
         then we will not add bloat the code by baking the target procedure's specific pointer.
@@ -14,106 +14,65 @@
     Although, I still think it would be dumb for the compiler to do all that and not have a simple dyncall-like facility which is exposed to the user.
     If we can compile and link in arbitrary code, we should certainly be able to generate some simple procedure-calling code.
     
-    TODO: 
-        I can probably work the extended procedure info stuff in here eventually, 
-        and provide some way for users to get the benefits of that without needing 
-        to pull the necessary parts of of Lead Sheets themselves.
-        
-        There's currently a major issue with procedures using varargs.
-        The type info does not record the fact that arguments are varargs, 
-        so when we try to call a varargs procedure and pass an array, 
-        it treats that as just the first vararg, and then consumes any subsequent arguments as well.
-        
-        There's not really anything I can do to get around this short of using extended procedure info 
-        to know when I need to spread arguments. But then 
-        
-        
+    
 */
 
-// NOTE: This does not appear to work for some reason. Not really sure why...
-// duplicate_procedure_type :: ($T: Type) -> Type #compile_time {
-//     proc_info :: type_info(T);
-//     #insert -> string {
-//         assert(proc_info.type == .PROCEDURE);
-        
-//         builder: String_Builder;
-//         for 0..proc_info.argument_types.count-1 {
-//             print(*builder, "Ta%1 :: #run (*proc_info.argument_types[%1]).(*Type).*;\n", it);
-//         }
-//         for 0..proc_info.return_types.count-1 {
-//             print(*builder, "Tr%1 :: #run (*proc_info.return_types[%1]).(*Type).*;\n", it);
-//         }
-        
-//         append(*builder, "return #type (");
-//         for 0..proc_info.argument_types.count-1 {
-//             if it != 0  append(*builder, ", ");
-//             print(*builder, "Ta%1", it);
-//         }
-//         append(*builder, ")");
-        
-//         if proc_info.return_types {
-//             append(*builder, " -> ");
-//         }
-//         for 0..proc_info.return_types.count-1 {
-//             if it != 0  append(*builder, ", ");
-//             print(*builder, "Tr%1", it);
-//         }
-//         append(*builder, ";");
-        
-//         return builder_to_string(*builder);
-//     }
-// }
-
-call_procedure :: (procedure: $P, arguments: [] Any, return_values: [] Any, check_types := true) -> bool #modify {
-    return P.(*Type_Info).type == .PROCEDURE, "P must be a procedure type.";
-} {
-    proc_info :: type_info(P);
-    
-    // This does not work! how strange!
-    // __procedure: #run duplicate_procedure_type(P);
-    // __procedure = procedure;
-    
-    if check_types {
-        if arguments.count != proc_info.argument_types.count {
-            log("Error: incorrect number of arguments provided in dynamic procedure call. Expected %, but got %.", proc_info.argument_types.count, arguments.count);
+typecheck_procedure_call :: (procedure_info: *Type_Info_Procedure, arguments: [] Any, return_values: [] Any) -> bool {
+    if arguments.count != procedure_info.argument_types.count {
+        log("Error: incorrect number of arguments provided in dynamic procedure call. Expected %, but got %.", procedure_info.argument_types.count, arguments.count);
+        return false;
+    }
+    for 0..arguments.count-1 {
+        formal := procedure_info.argument_types[it];
+        actual := arguments[it].type;
+        if formal != actual {
+            log("Incorrect type provided for argument % in dynamic procedure call. Expected type %, but got %.", it, as_type(formal), as_type(actual));
             return false;
-        }
-        for 0..arguments.count-1 {
-            formal := proc_info.argument_types[it];
-            actual := arguments[it].type;
-            if formal != actual {
-                log("Incorrect type provided for argument % in dynamic procedure call. Expected type %, but got %.", it, as_type(formal), as_type(actual));
-                return false;
-            }
-        }
-        
-        if return_values.count != proc_info.return_types.count {
-            log("Error: incorrect number of return values provided in dynamic procedure call. Expected %, but got %.", proc_info.return_types.count, return_values.count);
-            return false;
-        }
-        for 0..return_values.count-1 {
-            formal := proc_info.return_types[it];
-            actual := return_values[it].type;
-            if formal != actual {
-                log("Incorrect type provided for return value % in dynamic procedure call. Expected type %, but got %.", it, as_type(formal), as_type(actual));
-                return false;
-            }
         }
     }
+    
+    if return_values.count != procedure_info.return_types.count {
+        log("Error: incorrect number of return values provided in dynamic procedure call. Expected %, but got %.", procedure_info.return_types.count, return_values.count);
+        return false;
+    }
+    for 0..return_values.count-1 {
+        formal := procedure_info.return_types[it];
+        actual := return_values[it].type;
+        if formal != actual {
+            log("Incorrect type provided for return value % in dynamic procedure call. Expected type %, but got %.", it, as_type(formal), as_type(actual));
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+Procedure_Call_Wrapper :: #type (procedure: *void, arguments: [] Any, return_values: [] Any) -> bool;
+
+call_procedure :: call_procedure_checked;
+call_procedure :: call_procedure_unchecked;
+
+call_procedure_checked :: (procedure: $P, arguments: [] Any, return_values: [] Any) -> bool #modify {
+    return P.(*Type_Info).type == .PROCEDURE, "P must be a procedure type.";
+} {
+    PROCEDURE_TYPE_INFO :: type_info(P);
+    
+    if !typecheck_procedure_call(PROCEDURE_TYPE_INFO, arguments, return_values)  return false;
     
     #insert -> string {
         builder: String_Builder;
         
-        // Because we don't want to rely on simply printing types into the generated code (which won't work for procedure types),
-        //   we need to first do some nonsense to unpack the types as constants we can easily reference.
-        // Perhaps this sort of thing would be a lot easier to do if the compiler just collapsed the distinction between `Type` and `*Type_Info`, 
-        //   or allowed casting between the two to be an implicitly comptime operation. 
-        
-        for proc_info.argument_types {
-            print(*builder, "Ta%1 :: #run (*proc_info.argument_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
+        /*
+            Because we don't want to rely on simply printing types into the generated code (which won't work for procedure types),
+              we need to first do some nonsense to unpack the types as constants we can easily reference.
+            Perhaps this sort of thing would be a lot easier to do if the compiler just collapsed the distinction between `Type` and `*Type_Info`, 
+              or allowed casting between the two to be an implicitly comptime operation. 
+        */
+        for PROCEDURE_TYPE_INFO.argument_types {
+            print(*builder, "Ta%1 :: #run (*PROCEDURE_TYPE_INFO.argument_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
         }
-        for proc_info.return_types {
-            print(*builder, "Tr%1 :: #run (*proc_info.return_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
+        for PROCEDURE_TYPE_INFO.return_types {
+            print(*builder, "Tr%1 :: #run (*PROCEDURE_TYPE_INFO.return_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
         }
         
         
@@ -124,28 +83,18 @@ call_procedure :: (procedure: $P, arguments: [] Any, return_values: [] Any, chec
             so that we can shake the invisible extra data that the compiler holds about a type.
             In particular, we need to make sure that the compiler forgets about varargs, 
             since otherwise, our call will pass the arguments incorrectly below.
-            
-            I can't exactly blame the compiler for doing this kind of thing behind the scenes, 
-            because if we got distinct procedure type infos depending on whether some argument was varargs or just an array,
-            it would probably lead to both code bloat and weirdness around casting.
-            
-            And, to be fair, the procedure types *are actually the same* in terms of how the arguments are passed on an ABI level,
-            but because we are doing this whole wrapper procedure thing, we are simply not working on that level.
-            
-            So alas, we have to wrestle with the fact that the compiler is trying to be nice and let us call the procedure in an intuitive way,
-            but it just so happens that with all the indirection we have going on here, it's actually very unintuitive.
         */
         append(*builder, "__procedure := procedure.(");
         append(*builder, "#type (");
-        for 0..proc_info.argument_types.count-1 {
+        for 0..PROCEDURE_TYPE_INFO.argument_types.count-1 {
             if it != 0  append(*builder, ", ");
             print(*builder, "Ta%1", it);
         }
         append(*builder, ")");
-        if proc_info.return_types {
+        if PROCEDURE_TYPE_INFO.return_types {
             append(*builder, " -> ");
         }
-        for 0..proc_info.return_types.count-1 {
+        for 0..PROCEDURE_TYPE_INFO.return_types.count-1 {
             if it != 0  append(*builder, ", ");
             print(*builder, "Tr%1", it);
         }
@@ -153,15 +102,15 @@ call_procedure :: (procedure: $P, arguments: [] Any, return_values: [] Any, chec
         
         
         // and now the actual procedure call
-        for 0..proc_info.return_types.count-1 {
+        for 0..PROCEDURE_TYPE_INFO.return_types.count-1 {
             if it != 0  append(*builder, ", ");
             print(*builder, "return_values[%1].value_pointer.(*Tr%1).*", it);
         }
-        if proc_info.return_types.count > 0 {
+        if PROCEDURE_TYPE_INFO.return_types.count > 0 {
             append(*builder, " = ");
         }
         append(*builder, "__procedure(");
-        for 0..proc_info.argument_types.count-1 {
+        for 0..PROCEDURE_TYPE_INFO.argument_types.count-1 {
             if it != 0  append(*builder, ", ");
             print(*builder, "arguments[%1].value_pointer.(*Ta%1).*", it);
         }
@@ -178,31 +127,49 @@ call_procedure :: (procedure: $P, arguments: [] Any, return_values: [] Any, chec
     Using this version may be preferable if you're already doing your own typechecking and don't want the additional overhead of passing an Any.
     I don't currently have the registration system below set up to work with this version, but it should be straightforward to adapt it.
 */
-call_procedure_unsafe :: (procedure: $P, arguments: [] *void, return_values: [] *void) #modify {
+call_procedure_unchecked :: (procedure: $P, arguments: [] *void, return_values: [] *void) #modify {
     return P.(*Type_Info).type == .PROCEDURE, "P must be a procedure type.";
 } {
-    proc_info :: type_info(P);
+    PROCEDURE_TYPE_INFO :: type_info(P);
     
     #insert -> string {
         builder: String_Builder;
         
-        for proc_info.argument_types {
-            print(*builder, "Ta%1 :: #run (*proc_info.argument_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
+        for PROCEDURE_TYPE_INFO.argument_types {
+            print(*builder, "Ta%1 :: #run (*PROCEDURE_TYPE_INFO.argument_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
         }
-        for proc_info.return_types {
-            print(*builder, "Tr%1 :: #run (*proc_info.return_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
+        for PROCEDURE_TYPE_INFO.return_types {
+            print(*builder, "Tr%1 :: #run (*PROCEDURE_TYPE_INFO.return_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
         }
         
-        for 0..proc_info.return_types.count-1 {
+        
+        append(*builder, "__procedure := procedure.(");
+        append(*builder, "#type (");
+        for 0..PROCEDURE_TYPE_INFO.argument_types.count-1 {
+            if it != 0  append(*builder, ", ");
+            print(*builder, "Ta%1", it);
+        }
+        append(*builder, ")");
+        if PROCEDURE_TYPE_INFO.return_types {
+            append(*builder, " -> ");
+        }
+        for 0..PROCEDURE_TYPE_INFO.return_types.count-1 {
+            if it != 0  append(*builder, ", ");
+            print(*builder, "Tr%1", it);
+        }
+        append(*builder, ");\n");
+        
+        
+        for 0..PROCEDURE_TYPE_INFO.return_types.count-1 {
             if it != 0  append(*builder, ", ");
             print(*builder, "return_values[%1].(*Tr%1).*", it);
         }
-        if proc_info.return_types.count > 0 {
+        if PROCEDURE_TYPE_INFO.return_types.count > 0 {
             append(*builder, " = ");
         }
         
-        append(*builder, "procedure(");
-        for 0..proc_info.argument_types.count-1 {
+        append(*builder, "__procedure(");
+        for 0..PROCEDURE_TYPE_INFO.argument_types.count-1 {
             if it != 0  append(*builder, ", ");
             print(*builder, "arguments[%1].(*Ta%1).*", it);
         }
@@ -212,35 +179,167 @@ call_procedure_unsafe :: (procedure: $P, arguments: [] *void, return_values: [] 
     }
 }
 
-/*
-    To be honest, there's probably better ways to keep track of the wrappers for each procedure type that will better suit different projects,
-        but this is what I have in place for Lead Sheets, so that's what provided for the time being.
-*/
 
-register_procedure_type_for_dynamic_call :: inline ($P: Type) #modify {
-    return P.(*Type_Info).type == .PROCEDURE, tprint("P must be a procedure type, but it was %", P); 
-} {
-    for procedure_wrappers if it.type == xx P  return;
-    array_add(*procedure_wrappers, .{ xx P, xx #procedure_of_call call_procedure(null.(P), .[], .[]) });
+
+
+
+
+Dynamic_Callback :: struct {
+    using procedure_info:   Procedure_Info;
+    procedure_pointer:      *void;
+    
+    argument_values:        [] Any;
+    
+    // TODO: attach optional return values array as well?
+    // TODO: maybe allow user to attach pointer to context to use when we execute the dynamic call
+    
+    // TODO: how to store context modifications and set/restore at call site?
+    // context_modifications:  [] Context_Modification;
+    // Context_Modification :: struct {
+    //     offset_in_bytes:    int;
+    //     type:               Type;
+    //     value_pointer:      *void;
+    // }
 }
 
-Wrapped_Procedure_Call :: #type (pointer: *void, arguments: [] Any, return_values: [] Any, bool) -> bool;
+call :: (callback: Dynamic_Callback, return_values: ..Any) -> bool {
+    return callback.dynamic_call_wrapper(callback.procedure_pointer, callback.argument_values, return_values);
+}
 
-procedure_wrappers: [..] struct { type: *Type_Info; wrapper: Wrapped_Procedure_Call; };
-
-try_calling_procedure_with_wrapper :: (proc_info: *Type_Info_Procedure, proc_ptr: *void, arguments: [] Any, return_values: [] Any) -> bool {
-    for procedure_wrappers {
-        if it.type == proc_info {
-            return it.wrapper(proc_ptr, arguments, return_values, true);
-        }
+call :: (callback: Dynamic_Callback, allocator := temp) -> bool, [] Any {
+    type := get_type_info(callback.procedure_info);
+    
+    return_values := NewArray(type.return_types.count, Any,, allocator);
+    for type.return_types {
+        return_values[it_index] = New_Any(it, initialized = false);
     }
-    log("Error: % has not been registered for use in a dynamic call.", (*proc_info).(*Type).*);
-    return false;
+    
+    return callback.call_wrapper(callback.procedure_pointer, callback.argument_values, return_values), return_values;
+}
+
+
+make_dynamic_callback :: ($procedure_call_expression: Code, $scope := #caller_code, $$allocator := temp) -> *Dynamic_Callback #expand {
+    /* 
+        TODO: any way to simplify this?
+        we can't just do the following, because #procedure_of_call evaluates before the #insert:
+            PROCEDURE :: #procedure_of_call #insert procedure_call_expression;
+        so instead we have to do a wonky scoped insert that contains the #procedure_of_call internally
+        (also, the above code actually crashes the compiler, so that's fun)
+    */
+    PROCEDURE :: #insert,scope(scope) -> string {
+        builder: String_Builder;
+        append(*builder, "#procedure_of_call ");
+        Program_Print.print_expression(*builder, compiler_get_nodes(procedure_call_expression));
+        append(*builder, ";\n");
+        return builder_to_string(*builder);
+    }
+    
+    PROCEDURE_INFO :: #run get_procedure_info(PROCEDURE);
+    PROCEDURE_TYPE_INFO :: type_info(type_of(PROCEDURE));
+    
+    callback := Dynamic_Callback.{
+        procedure_info     = PROCEDURE_INFO,
+        procedure_pointer  = xx PROCEDURE,
+        argument_values = NewArray(PROCEDURE_INFO.arguments.count, Any,, temp)
+    };
+    
+    arguments_provided_array_size := PROCEDURE_INFO.arguments.count * size_of(Any);
+    allocation_size := size_of(Dynamic_Callback) + arguments_provided_array_size;
+    
+    // I hate to put even more garbage into temp, but not sure how else ot handle this gracefully, 
+    // without having to do some kind of pre-pass to determine allocation size up front (which I am not sure if that is even actually possible).
+    data_to_copy: [..] Any;
+    data_to_copy.allocator = temp;
+    
+    copy_any :: (a: Any) -> Any #expand {
+        any: Any = ---;
+        any.type = a.type;
+        any.value_pointer = alloc(a.type.runtime_size,, temp);
+        memcpy(any.value_pointer, a.value_pointer, a.type.runtime_size);
+        
+        if allocator.proc != temporary_allocator_proc {
+            array_add(*data_to_copy, any);
+            allocation_size += a.type.runtime_size;
+        }
+        return any;
+    }
+    
+    /* 
+        TODO: can we do this all with code nodes?
+        We currently have to do this really ugly inner insert,scope for all of the argument value expressions,
+        since these need to have access to the outer scope, but the other code in the insert needs access to this procedure's scope.
+        There has to be a better way to accomplish this...
+    */
+    #insert -> string {
+        proc_call := compiler_get_nodes(procedure_call_expression).(*Code_Procedure_Call);
+        
+        assert(proc_call.context_modification == null, "Context modifications are not supported in make_dynamic_callback.");
+        
+        builder: String_Builder;
+        
+        for argument: proc_call.arguments_sorted {
+            print(*builder, "// %: %\n", PROCEDURE_INFO.arguments[it_index].name, as_type(PROCEDURE_TYPE_INFO.argument_types[it_index]));
+            
+            if argument.kind == {
+              case .MAKE_VARARGS;
+                code_make_varargs := argument.(*Code_Make_Varargs);
+                print(*builder, "callback.argument_values[%] = ", it_index);
+                print(*builder, "copy_any(array_view(%.[", as_type(code_make_varargs.element_type));
+                
+                for code_make_varargs.expressions {
+                    if it_index != 0  append(*builder, ", ");
+                    if code_make_varargs.element_type.type == .ANY {
+                        append(*builder, "copy_any( #insert,scope(scope) #string JAI\n");
+                        Program_Print.print_expression(*builder, it);
+                        append(*builder, ";\nJAI)");
+                    } else {
+                        Program_Print.print_expression(*builder, it);
+                    }
+                }
+                
+                append(*builder, "], 0));\n");
+                continue argument;
+            }
+            
+            print(*builder, "callback.argument_values[%] = copy_any(#insert,scope(scope) #string JAI\n", it_index);
+            Program_Print.print_expression(*builder, argument);
+            append(*builder, ";\nJAI);");
+        }
+        
+        // str := builder_to_string(*builder); write_string(str); return str;
+        return builder_to_string(*builder);
+    }
+    
+    if allocator.proc != temporary_allocator_proc {
+        memory := alloc(allocation_size,, allocator);
+        dst := memory;
+        
+        memcpy(dst, *callback, size_of(Dynamic_Callback)); 
+        dst += size_of(Dynamic_Callback);
+        
+        arguments_start := dst;
+        for *data_to_copy {
+            memcpy(dst, it.value_pointer, it.type.runtime_size);
+            it.value_pointer = dst; // overwrite value pointers in place so that when we copy argument_values we are pointing at the right place
+            dst += it.type.runtime_size;
+        }
+        
+        memcpy(dst, *callback.argument_values.data, arguments_provided_array_size); 
+        callback.argument_values.data = dst;
+        dst += arguments_provided_array_size;
+        
+        return xx memory;
+    }
+    
+    callback_copy := New(Dynamic_Callback);
+    memcpy(callback_copy, *callback, size_of(Dynamic_Callback));
+    return callback_copy;
 }
 
 
 
+#scope_file
 
-
-
+#import "Compiler";
+Program_Print :: #import "Program_Print";
 

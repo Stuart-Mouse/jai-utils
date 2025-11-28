@@ -62,13 +62,12 @@ get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_ti
 }
 
 Procedure_Info :: struct {
-    procedure_expression:       string;
-    type:                       Type;
-    arguments:                  [] Argument;
-    returns:                    [] Argument;
+    type:           Type;
+    arguments:      [] Argument;
+    returns:        [] Argument;
+    call_wrapper:   Procedure_Call_Wrapper;
     
-    // TODO: maybe #if to make this optional
-    dynamic_call_wrapper:       Wrapped_Procedure_Call;
+    // #overlay(type) procedure_type_info: *Type_Info_Procedure;
     
     Argument :: struct {
         name:           string;
@@ -83,44 +82,38 @@ Procedure_Info :: struct {
     }
 }
 
-get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info {
-    // dumb helper for generating procedure_expression string
-    remove_trailing_newline :: (s: string) -> string {
-        return ifx s && s[s.count-1] == "\n" then string.{ s.count-1, s.data } else s;
-    }
-    
+get_type_info :: (procedure_info: Procedure_Info) -> *Type_Info_Procedure {
+    return procedure_info.type.(*Type_Info_Procedure);
+}
+
+get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
     #insert -> string {
         builder: String_Builder;
         
         root := compiler_get_nodes(procedure_expression);
-        proc_header := get_procedure_header(root);
+        procedure_header := get_procedure_header(root);
         
-        if proc_header == null {
+        if procedure_header == null {
             append(*builder, "Warning: Unable to resolve procedure header from expression: ");
             Program_Print.print_expression(*builder, root);
             log(builder_to_string(*builder));
             return "return .{};";
         }
         
-        assert(proc_header.procedure_flags & .POLYMORPHIC == 0, "Cannot get procedure info for a polymorphic procedure.");
+        assert(procedure_header.procedure_flags & .POLYMORPHIC == 0, "Cannot get procedure info for a polymorphic procedure.");
         
-        proc_type := proc_header.type.(*Type_Info_Procedure);
+        procedure_type_info := procedure_header.type.(*Type_Info_Procedure);
         append(*builder, "procedure :: #insert procedure_expression;\n");
-        append(*builder, "proc_type :: type_info(type_of(procedure));\n");
-        for proc_type.argument_types {
-            print(*builder, "Ta%1 :: #run (*proc_type.argument_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
+        append(*builder, "procedure_type_info :: type_info(type_of(procedure));\n");
+        for procedure_type_info.argument_types {
+            print(*builder, "Ta%1 :: #run (*procedure_type_info.argument_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
         }
-        
-        
-        append(*builder, "procedure_expression_string :: #run remove_trailing_newline(#string __PROCEDURE_EXPRESSION__\n");
-        Program_Print.print_expression(*builder, root);
-        append(*builder, "\n__PROCEDURE_EXPRESSION__);\n");
         
         // generate arguments array
         {
             append(*builder, "arguments :: Procedure_Info.Argument.[\n");
-            for proc_header.arguments {
-                print(*builder, ".{ name = \"%\", ", it.name);
+            for procedure_header.arguments {
+                print(*builder, "    .{ name = \"%\", ", it.name);
                 
                 // TODO: make flags printing less hacky
                 append(*builder, "flags = .NONE");
@@ -134,6 +127,11 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info {
                 
                 if it.expression {
                     append(*builder, "get_default = () -> Any { ");
+                    
+                    // We have to use another insert,scope() internally so that the body of get_default resolves relative to the location of the procedure expresion itself.
+                    // Maybe it would be better if we were to just go back to using a single get_default_argument_value proc with index as parameter, since that way we only need to do one insert,scope
+                    // Could then do a parameter bake to get a version to attach here, if necessary
+                    append(*builder, "#insert,scope(procedure_expression) #string JAI\n");
                     print(*builder, "ret := New_Any(xx Ta%, initialized = false); ", it_index);
                     do_default := true;
                     if it.expression.kind == {
@@ -149,39 +147,39 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info {
                         Program_Print.print_expression(*builder, it.expression);
                         append(*builder, "; ");
                     }
-                    append(*builder, "return ret; }, ");
+                    append(*builder, "return ret; \nJAI);\n}, ");
                 }
                 
                 append(*builder, "},\n");
-                // if it_index != proc_header.arguments.count-1 {
-                //     append(*builder, ", ");
-                // }
             }
             append(*builder, "];\n");
         }
         
         // generate return values array
         {
-            append(*builder, "returns :: Procedure_Info.Argument.[ ");
-            for proc_header.returns {
-                print(*builder, ".{ name = \"%\" },\n", it.name);
+            append(*builder, "returns :: Procedure_Info.Argument.[\n");
+            for procedure_header.returns {
+                print(*builder, "    .{ name = \"%\" },\n", it.name);
             }
-            append(*builder, " ];\n");
+            append(*builder, "];\n");
         }
+        
+        append(*builder, #string JAI
+        
+    call_wrapper :: #procedure_of_call call_procedure_checked(procedure, .[], .[]);
+    
+    return .{ 
+        type_of(procedure), 
+        arguments, 
+        returns, 
+        xx call_wrapper 
+    };
+    JAI);
         
         
         return builder_to_string(*builder);
     }
     
-    dynamic_call_wrapper :: #procedure_of_call call_procedure(null.(type_of(procedure)), .[], .[]);
-
-    return .{ 
-        procedure_expression_string, 
-        type_of(procedure), 
-        arguments, 
-        returns, 
-        xx dynamic_call_wrapper 
-    };
 }
 
 get_default_argument_value :: (info: Procedure_Info, argument_name: string) -> bool, Any {
@@ -193,111 +191,6 @@ get_default_argument_value :: (info: Procedure_Info, argument_name: string) -> b
     }
     return false, Any.{};
 }
-
-
-
-Dynamic_Procedure_Callback :: struct {
-    using procedure_info:   Procedure_Info;
-    procedure_pointer:      *void;
-    
-    arguments_provided:     [] Any;
-    
-    // TODO: how to store context modifications and set/restore at call site?
-    // context_modifications:  [] Context_Modification;
-    // Context_Modification :: struct {
-    //     offset_in_bytes:    int;
-    //     type:               Type;
-    //     value_pointer:      *void;
-    // }
-}
-
-call :: (callback: Dynamic_Procedure_Callback, returns: [] Any) -> bool {
-    arguments := array_copy(callback.arguments_provided);
-    for callback.procedure_info.arguments {
-        // if value pointer is null, that means we need a default value
-        if arguments[it_index].value_pointer == null {
-            if it.get_default == null {
-                log("Error: Expected a valid get_default() for argument '%' in dynamic procedure callback.", it.name);
-                return false;
-            }
-            arguments[it_index] = it.get_default();
-        }
-    }
-    return callback.dynamic_call_wrapper(callback.procedure_pointer, arguments, returns, true);
-}
-
-make_dynamic_procedure_callback :: ($procedure_call_expression: Code) -> Dynamic_Procedure_Callback #expand {
-    /* 
-        TODO: any way to simplify this?
-        we can't just do the following, because #procedure_of_call evaluates before the #insert:
-            PROCEDURE_OF_CALL :: #procedure_of_call #insert procedure_call_expression;
-        so instead we have to do a wonky scoped insert that contains the #procedure_of_call internally
-        (also, the above code actually crashes the compiler, so that's fun)
-    */
-    PROCEDURE_OF_CALL :: #insert,scope(procedure_call_expression) -> string {
-        builder: String_Builder;
-        append(*builder, "#procedure_of_call ");
-        Program_Print.print_expression(*builder, compiler_get_nodes(procedure_call_expression));
-        append(*builder, ";\n");
-        return builder_to_string(*builder);
-    }
-    
-    PROCEDURE_INFO :: #run,stallable get_procedure_info(PROCEDURE_OF_CALL);
-    PROCEDURE_TYPE_INFO :: type_info(#run PROCEDURE_INFO.type);
-    
-    callback := Dynamic_Procedure_Callback.{
-        procedure_info     = PROCEDURE_INFO,
-        procedure_pointer  = xx PROCEDURE_OF_CALL,
-        arguments_provided = NewArray(PROCEDURE_INFO.arguments.count, Any,, temp)
-    };
-    
-    #insert -> string {
-        proc_call := compiler_get_nodes(procedure_call_expression).(*Code_Procedure_Call);
-        
-        assert(proc_call.context_modification == null, "Context modifications are not supported in make_dynamic_procedure_callback.");
-        
-        builder: String_Builder;
-        
-        for PROCEDURE_TYPE_INFO.argument_types {
-            print(*builder, "Ta%1 :: #run (*PROCEDURE_TYPE_INFO.argument_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
-        }
-        
-        for argument: proc_call.arguments_sorted {
-            print(*builder, "// %: %\n", PROCEDURE_INFO.arguments[it_index].name, as_type(PROCEDURE_TYPE_INFO.argument_types[it_index]));
-            
-            log("argument.kind: %", argument.kind);
-            
-            if argument.kind == {
-              case .MAKE_VARARGS;
-                // TODO: do we need to individually copy all elements in this array as well?
-                code_make_varargs := argument.(*Code_Make_Varargs);
-                print(*builder, "callback.arguments_provided[%] = ", it_index);
-                print(*builder, "array_copy(%.[", as_type(code_make_varargs.element_type));
-                for code_make_varargs.expressions {
-                    if it_index != 0  append(*builder, ",");
-                    append(*builder, "\n    copy_any(");
-                    Program_Print.print_expression(*builder, it);
-                    append(*builder, ",, temp)");
-                }
-                append(*builder, "\n],, temp);\n");
-                continue argument;
-            }
-            
-            print(*builder, "callback.arguments_provided[%] = ifx 1 { ", it_index);
-            print(*builder, "ret := New_Any(xx Ta%, initialized = false); ", it_index);
-            print(*builder, "ret.value_pointer.(*Ta%).* = ", it_index);
-            Program_Print.print_expression(*builder, argument);
-            append(*builder, "; ret; };\n");
-        }
-        
-        // str := builder_to_string(*builder); write_string(str); return str;
-        return builder_to_string(*builder);
-    }
-    
-    return callback;
-}
-
-
 
 
 #scope_file
@@ -319,7 +212,7 @@ Program_Print :: #import "Program_Print";
 
 print_code_nodes :: (builder: *String_Builder, node: *Code_Node, indent := 0) {
     if node == null  return;
-
+    
     put :: (format: string, args: ..Any, newline := true) #expand {
         for 1..indent  append(builder, "  ");
         print(builder, format, ..args);
@@ -398,14 +291,5 @@ print_code_nodes :: (builder: *String_Builder, node: *Code_Node, indent := 0) {
         put("procedure_call:");
         print_code_nodes(builder, bake.procedure_call, indent + 1);
     }
-}
-
-
-copy_any :: (x: Any) -> Any {
-    any: Any = ---;
-    any.type = x.type;
-    any.value_pointer = alloc(x.type.runtime_size);
-    memcpy(any.value_pointer, x.value_pointer, x.type.runtime_size);
-    return any;
 }
 
