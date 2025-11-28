@@ -104,9 +104,9 @@ get_member :: (any_struct: Any, member_info: *Type_Info_Struct_Member) -> member
 
 Struct_Member_Iterator_Flags :: enum_flags {
     SKIP_CONSTANT;
-    SKIP_PLACE;
+    SKIP_OVERLAY;
     
-    SKIP_CONSTANT_AND_PLACE :: SKIP_CONSTANT | SKIP_PLACE;
+    SKIP_CONSTANT_AND_OVERLAY :: SKIP_CONSTANT | SKIP_OVERLAY;
 }
 
 // also provides 'it_info' iterator pointing to Type_Info_Struct_Member
@@ -114,14 +114,17 @@ iterate_struct_members :: (any: Any, $flags: Struct_Member_Iterator_Flags, body:
     assert(any.type.type == .STRUCT);
     ti_struct := any.type.(*Type_Info_Struct);
     
-    #if flags & .SKIP_PLACE {
+    #if flags & .SKIP_OVERLAY {
         last_member_offset := -1;
     }
     for *`it_info, `it_index: ti_struct.members {
         #if flags & .SKIP_CONSTANT {
             if it_info.flags & .CONSTANT  continue;
         }
-        #if flags & .SKIP_PLACE {
+        #if flags & .SKIP_OVERLAY {
+            if it_info.flags & .OVERLAY  continue;
+        }
+        #if flags & .SKIP_OVERLAY {
             // NOTE: This skips unions entirely, since all members have the same offset. 
             //       So probably just don't use .SKIP_PLACE with unions I guess.
             if it_info.offset_in_bytes <= last_member_offset  break;
