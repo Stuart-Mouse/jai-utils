@@ -52,7 +52,7 @@ Procedure_Call_Wrapper :: #type (procedure: *void, arguments: [] Any, return_val
 call_procedure :: call_procedure_checked;
 call_procedure :: call_procedure_unchecked;
 
-call_procedure_checked :: (procedure: $P, arguments: [] Any, return_values: [] Any) -> bool #modify {
+call_procedure_checked :: ($P: Type, procedure: P, arguments: [] Any, return_values: [] Any) -> bool #modify {
     return P.(*Type_Info).type == .PROCEDURE, "P must be a procedure type.";
 } {
     PROCEDURE_TYPE_INFO :: type_info(P);
@@ -127,7 +127,7 @@ call_procedure_checked :: (procedure: $P, arguments: [] Any, return_values: [] A
     Using this version may be preferable if you're already doing your own typechecking and don't want the additional overhead of passing an Any.
     I don't currently have the registration system below set up to work with this version, but it should be straightforward to adapt it.
 */
-call_procedure_unchecked :: (procedure: $P, arguments: [] *void, return_values: [] *void) #modify {
+call_procedure_unchecked :: ($P: Type, procedure: P, arguments: [] *void, return_values: [] *void) #modify {
     return P.(*Type_Info).type == .PROCEDURE, "P must be a procedure type.";
 } {
     PROCEDURE_TYPE_INFO :: type_info(P);
