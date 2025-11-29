@@ -317,7 +317,6 @@ make_dynamic_callback :: ($procedure_call_expression: Code, $scope := #caller_co
         memcpy(dst, *callback, size_of(Dynamic_Callback)); 
         dst += size_of(Dynamic_Callback);
         
-        arguments_start := dst;
         for *data_to_copy {
             memcpy(dst, it.value_pointer, it.type.runtime_size);
             it.value_pointer = dst; // overwrite value pointers in place so that when we copy argument_values we are pointing at the right place
