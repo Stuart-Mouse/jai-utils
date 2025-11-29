@@ -131,7 +131,6 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
                     // We have to use another insert,scope() internally so that the body of get_default resolves relative to the location of the procedure expresion itself.
                     // Maybe it would be better if we were to just go back to using a single get_default_argument_value proc with index as parameter, since that way we only need to do one insert,scope
                     // Could then do a parameter bake to get a version to attach here, if necessary
-                    append(*builder, "#insert,scope(procedure_expression) #string JAI\n");
                     print(*builder, "ret := New_Any(xx Ta%, initialized = false); ", it_index);
                     do_default := true;
                     if it.expression.kind == {
@@ -144,10 +143,11 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
                     }
                     if do_default {
                         print(*builder, "ret.value_pointer.(*Ta%).* = ", it_index);
+                        append(*builder, "(#insert,scope(procedure_expression) #string JAI\n");
                         Program_Print.print_expression(*builder, it.expression);
-                        append(*builder, "; ");
+                        append(*builder, ";\nJAI);");
                     }
-                    append(*builder, "return ret; \nJAI);\n}, ");
+                    append(*builder, "return ret; }, ");
                 }
                 
                 append(*builder, "},\n");
@@ -166,7 +166,7 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
         
         append(*builder, #string JAI
         
-    call_wrapper :: #procedure_of_call call_procedure_checked(procedure, .[], .[]);
+    call_wrapper :: #bake_arguments call_procedure_checked(P = type_of(procedure));
     
     return .{ 
         type_of(procedure), 
