@@ -87,6 +87,13 @@ get_type_info :: (procedure_info: Procedure_Info) -> *Type_Info_Procedure {
 }
 
 get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
+    // We bake these arguments for each argument that has a default value.
+    get_default :: ($T: Type, $code: Code) -> Any {
+        ret := New_Any(xx T, initialized = false);
+        ret.value_pointer.(*T).* = #insert,scope(procedure_expression) code;
+        return ret;
+    }
+    
     #insert -> string {
         builder: String_Builder;
         
@@ -126,28 +133,20 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
                 append(*builder, ", ");
                 
                 if it.expression {
-                    append(*builder, "get_default = () -> Any { ");
-                    
-                    // We have to use another insert,scope() internally so that the body of get_default resolves relative to the location of the procedure expresion itself.
-                    // Maybe it would be better if we were to just go back to using a single get_default_argument_value proc with index as parameter, since that way we only need to do one insert,scope
-                    // Could then do a parameter bake to get a version to attach here, if necessary
-                    print(*builder, "ret := New_Any(xx Ta%, initialized = false); ", it_index);
-                    do_default := true;
+                    handled := false;
                     if it.expression.kind == {
                       case .DIRECTIVE_LOCATION;
                         code_directive_location := it.expression.(*Code_Directive_Location);
                         if code_directive_location.is_caller_location { 
-                            print(*builder, "ret.value_pointer.(*Ta%).* = #location(procedure_expression); ", it_index);
-                            do_default = false;
+                            print(*builder, "get_default = #bake_arguments get_default(T = Ta%, code = #location(procedure_expression))", it_index);
+                            handled = true;
                         }
                     }
-                    if do_default {
-                        print(*builder, "ret.value_pointer.(*Ta%).* = ", it_index);
-                        append(*builder, "(#insert,scope(procedure_expression) #string JAI\n");
+                    if !handled {
+                        print(*builder, "get_default = #bake_arguments get_default(T = Ta%, code = ", it_index);
                         Program_Print.print_expression(*builder, it.expression);
-                        append(*builder, ";\nJAI);");
+                        append(*builder, ")");
                     }
-                    append(*builder, "return ret; }, ");
                 }
                 
                 append(*builder, "},\n");
@@ -164,8 +163,9 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
             append(*builder, "];\n");
         }
         
-        append(*builder, #string JAI
-        
+        return builder_to_string(*builder);
+    }
+    
     call_wrapper :: #bake_arguments call_procedure_checked(P = type_of(procedure));
     
     return .{ 
@@ -174,12 +174,6 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
         returns, 
         xx call_wrapper 
     };
-    JAI);
-        
-        
-        return builder_to_string(*builder);
-    }
-    
 }
 
 get_default_argument_value :: (info: Procedure_Info, argument_name: string) -> bool, Any {

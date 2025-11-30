@@ -234,19 +234,27 @@ make_dynamic_callback :: ($procedure_call_expression: Code, $scope := #caller_co
         return builder_to_string(*builder);
     }
     
+    // TODO: mail this version in. something really weird is going on here...
+    //       when using print, get a 'not all control paths return a value' warning, and get a junk value returned.
+    // PROCEDURE :: #insert -> Code {
+    //     call := compiler_get_nodes(procedure_call_expression).(*Code_Procedure_Call);
+    //     assert(call.kind == .PROCEDURE_CALL && call.resolved_procedure_expression != null);
+    //     return compiler_get_code(call.resolved_procedure_expression);
+    // }
+    
     PROCEDURE_INFO :: #run get_procedure_info(PROCEDURE);
     PROCEDURE_TYPE_INFO :: type_info(type_of(PROCEDURE));
     
     callback := Dynamic_Callback.{
         procedure_info     = PROCEDURE_INFO,
         procedure_pointer  = xx PROCEDURE,
-        argument_values = NewArray(PROCEDURE_INFO.arguments.count, Any,, temp)
+        argument_values    = NewArray(PROCEDURE_INFO.arguments.count, Any,, temp)
     };
     
     arguments_provided_array_size := PROCEDURE_INFO.arguments.count * size_of(Any);
     allocation_size := size_of(Dynamic_Callback) + arguments_provided_array_size;
     
-    // I hate to put even more garbage into temp, but not sure how else ot handle this gracefully, 
+    // I hate to put even more garbage into temp, but not sure how else to handle this gracefully, 
     // without having to do some kind of pre-pass to determine allocation size up front (which I am not sure if that is even actually possible).
     data_to_copy: [..] Any;
     data_to_copy.allocator = temp;
@@ -264,6 +272,21 @@ make_dynamic_callback :: ($procedure_call_expression: Code, $scope := #caller_co
         return any;
     }
     
+    copy_value :: ($T: Type, $value_expression: Code) -> Any #expand {
+        value := New(T,, temp);
+        value.* = #insert,scope(scope) value_expression;
+        if allocator.proc != temporary_allocator_proc {
+            array_add(*data_to_copy, value.*);
+            allocation_size += size_of(T);
+        }
+        return value.*;
+    }
+    
+    copy_array :: ($E: Type, values: ..E) -> Any #expand {
+        // TODO: make this actually useful
+        return copy_any(values);
+    }
+    
     /* 
         TODO: can we do this all with code nodes?
         We currently have to do this really ugly inner insert,scope for all of the argument value expressions,
@@ -277,33 +300,40 @@ make_dynamic_callback :: ($procedure_call_expression: Code, $scope := #caller_co
         
         builder: String_Builder;
         
+        for PROCEDURE_TYPE_INFO.argument_types {
+            print(*builder, "Ta%1 :: #run (*PROCEDURE_TYPE_INFO.argument_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
+        }
+        
         for argument: proc_call.arguments_sorted {
             print(*builder, "// %: %\n", PROCEDURE_INFO.arguments[it_index].name, as_type(PROCEDURE_TYPE_INFO.argument_types[it_index]));
             
             if argument.kind == {
               case .MAKE_VARARGS;
+                // NOTE: This does not cover the case that a user manually spreads some array of Any into the varargs.
+                //       In that case, we will not automatically copy the values inside of the array.
+                // TODO: probably need to get type expression for the varargs element type instead of relying on simply printing the element type as we do below.
+                //       may also need to make sure that this type is inserted with scope... uuughh
+                //       or we could do some goofy #run with a cast from array_info.element_type to type, sort of like the code to unpack the argument types above
                 code_make_varargs := argument.(*Code_Make_Varargs);
                 print(*builder, "callback.argument_values[%] = ", it_index);
-                print(*builder, "copy_any(array_view(%.[", as_type(code_make_varargs.element_type));
-                
+                print(*builder, "copy_array(%, ", as_type(code_make_varargs.element_type));
                 for code_make_varargs.expressions {
                     if it_index != 0  append(*builder, ", ");
                     if code_make_varargs.element_type.type == .ANY {
-                        append(*builder, "copy_any( #insert,scope(scope) #string JAI\n");
+                        print(*builder, "copy_any(#insert,scope(scope) #string JAI\n");
                         Program_Print.print_expression(*builder, it);
                         append(*builder, ";\nJAI)");
                     } else {
                         Program_Print.print_expression(*builder, it);
                     }
                 }
-                
-                append(*builder, "], 0));\n");
+                append(*builder, ");\n");
                 continue argument;
             }
             
-            print(*builder, "callback.argument_values[%] = copy_any(#insert,scope(scope) #string JAI\n", it_index);
+            print(*builder, "callback.argument_values[%1] = copy_value(Ta%1, ", it_index);
             Program_Print.print_expression(*builder, argument);
-            append(*builder, ";\nJAI);");
+            append(*builder, ");\n");
         }
         
         // str := builder_to_string(*builder); write_string(str); return str;
