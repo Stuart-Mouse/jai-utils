@@ -32,31 +32,31 @@ get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_ti
     if !node  return null;
     
     if node.kind == {
-      case .PROCEDURE_HEADER;
+      case .PROCEDURE_HEADER; log("PROCEDURE_HEADER");
         return xx node;
         
-      case .IDENT;
+      case .IDENT; log("IDENT");
         ident := node.(*Code_Ident);
         return get_procedure_header(ident.resolved_declaration);
         
-      case .DIRECTIVE_BAKE;
+      case .DIRECTIVE_BAKE; log("DIRECTIVE_BAKE");
         bake := node.(*Code_Directive_Bake);
         return get_procedure_header(bake.procedure_call);
         
-      case .DECLARATION;
+      case .DECLARATION; log("DECLARATION");
         declaration := node.(*Code_Declaration);
         return get_procedure_header(declaration.expression);
         
-      case .DIRECTIVE_INSERT;
+      case .DIRECTIVE_INSERT; log("DIRECTIVE_INSERT");
         insert := node.(*Code_Directive_Insert);
         return get_procedure_header(insert.expansion);
         
-      case .PROCEDURE_CALL;
+      case .PROCEDURE_CALL; log("PROCEDURE_CALL");
         call := node.(*Code_Procedure_Call);
-        if (call.flags & .RETURNS_PROCEDURE_POINTER_ONLY)
-        || (call.flags & 0x400) {  // this means procedure_of_call was used
+        // if (call.flags & .RETURNS_PROCEDURE_POINTER_ONLY)
+        // || (call.flags & 0x400) {  // this means procedure_of_call was used
             return get_procedure_header(call.resolved_procedure_expression);
-        }
+        // }
     }
     return null;
 }
@@ -143,7 +143,7 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
                         }
                     }
                     if !handled {
-                        print(*builder, "get_default = #bake_arguments get_default(T = Ta%, code = ", it_index);
+                        print(*builder, "get_default = #bake_arguments get_default(T = Ta%, code = #code ", it_index);
                         Program_Print.print_expression(*builder, it.expression);
                         append(*builder, ")");
                     }
@@ -187,7 +187,7 @@ get_default_argument_value :: (info: Procedure_Info, argument_name: string) -> b
 }
 
 
-#scope_file
+#scope_module
 
 #import "Compiler";
 Program_Print :: #import "Program_Print";
