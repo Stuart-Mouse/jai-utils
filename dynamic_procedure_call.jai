@@ -287,6 +287,7 @@ make_dynamic_callback :: ($procedure_call_expression: Code, $scope := #caller_co
     
     // TODO: make this actually useful
     copy_array :: (values: [] $E) -> Any #expand {
+    // copy_array :: ($E: Type, values: [] E) -> Any #expand {
         return copy_any(values);
     }
     
@@ -297,154 +298,80 @@ make_dynamic_callback :: ($procedure_call_expression: Code, $scope := #caller_co
         return types;
     }();
     
-    #run {
-        log("procedure type: %", type_of(PROCEDURE));
-        log("argument types:");
-        for ARGUMENT_TYPES {
-            log("%", it);
-        }
-    }
+    // #insert -> string {
+    //     procedure_call := compiler_get_nodes(procedure_call_expression).(*Code_Procedure_Call);
+    //     arguments_array_members := NewArray(procedure_call.arguments_sorted.count, *Code_Node);
+    //     for argument: procedure_call.arguments_sorted {
+    //         if argument.kind == {
+    //           case .MAKE_VARARGS;
+    //             "ARGUMENT_%1_ELEMENT_TYPE :: #run get_type(type_info(ARGUMENT_TYPES[%1]).element_type));\n", it_index);
+    //             "ARGUMENT_%1_ELEMENT_DUMMY: ARGUMENT_%1_ELEMENT_TYPE;\n", it_index);
+    //         }
+    //     }
+    // }
     
-    /* 
-        TODO: can we do this all with code nodes?
-        We currently have to do this really ugly inner insert,scope for all of the argument value expressions,
-        since these need to have access to the outer scope, but the other code in the insert needs access to this procedure's scope.
-        There has to be a better way to accomplish this...
-    */
-    #if 0 {
-        callback.argument_values = NewArray(PROCEDURE_INFO.arguments.count, Any,, temp);
+    // #run log("procedure type: %", type_of(PROCEDURE));
+    
+    argument_values := #insert -> Code {
+        procedure_call := compiler_get_nodes(procedure_call_expression).(*Code_Procedure_Call);
         
-        #insert -> string {
-            proc_call := compiler_get_nodes(procedure_call_expression).(*Code_Procedure_Call);
+        assert(procedure_call.context_modification == null, "Context modifications are not supported in make_dynamic_callback.");
+
+        procedure_header := get_procedure_header(procedure_call);
+        assert(procedure_header != null, "Error: unable to get procedure header from code:\n%", sprintx(procedure_call));
+        
+        // Attempted to use this to get a type inst for T that resolved inside the procedure body's scope. does not seem to work
+        // procedure_body_code := code_of(procedure_call_expression);
+        
+        arguments_array_members := NewArray(procedure_call.arguments_sorted.count, *Code_Node);
+        for argument: procedure_call.arguments_sorted {
+            argument_type_expression := compiler_get_nodes(#code ARGUMENT_TYPES[0]);
+            argument_type_expression.(*Code_Binary_Operator).right.(*Code_Literal)._s64 = it_index;
             
-            assert(proc_call.context_modification == null, "Context modifications are not supported in make_dynamic_callback.");
-            
-            builder: String_Builder;
-            
-            for PROCEDURE_TYPE_INFO.argument_types {
-                print(*builder, "Ta%1 :: #run (*PROCEDURE_TYPE_INFO.argument_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
-            }
-            
-            for argument: proc_call.arguments_sorted {
-                print(*builder, "// %: %\n", PROCEDURE_INFO.arguments[it_index].name, as_type(PROCEDURE_TYPE_INFO.argument_types[it_index]));
+            if argument.kind == {
+              case .MAKE_VARARGS;
+                make_varargs := argument.(*Code_Make_Varargs);
+                varargs_element_type_inst := get_type_inst_from_declaration(procedure_header.arguments[it_index]).array_element_type;
+                assert(varargs_element_type_inst != null, "Error while trying to get varargs element type instantiation.");
                 
-                if argument.kind == {
-                  case .MAKE_VARARGS;
-                    // NOTE: This does not cover the case that a user manually spreads some array of Any into the varargs.
-                    //       In that case, we will not automatically copy the values inside of the array.
-                    // TODO: probably need to get type expression for the varargs element type instead of relying on simply printing the element type as we do below.
-                    //       may also need to make sure that this type is inserted with scope... uuughh
-                    //       or we could do some goofy #run with a cast from array_info.element_type to type, sort of like the code to unpack the argument types above
-                    make_varargs := argument.(*Code_Make_Varargs);
-                    print(*builder, "callback.argument_values[%] = ", it_index);
-                    print(*builder, "copy_array(%, ", as_type(make_varargs.element_type));
-                    for make_varargs.expressions {
-                        if it_index != 0  append(*builder, ", ");
-                        if make_varargs.element_type.type == .ANY {
-                            print(*builder, "copy_any(#insert,scope(scope) #string JAI\n");
-                            Program_Print.print_expression(*builder, it);
-                            append(*builder, ";\nJAI)");
-                        } else {
-                            Program_Print.print_expression(*builder, it);
-                        }
+                // TODO: this approach does not seem to work either, but maybe we can try just getting an identifier to resolve to this type?
+                // varargs_element_type_inst = compiler_get_nodes(compiler_get_code(varargs_element_type_inst, procedure_body_code)).(*Code_Type_Instantiation);
+                // log("kind: %", varargs_element_type_inst.kind);
+                
+                // TODO: got no idea what to do about the below error... 
+                // Error: Unable to resolve this identifier because it is blocked by an inserter that could not complete. (get_type)
+                // insert_type := New(Code_Directive_Insert);
+                // insert_type.expression = make_string_literal(tprint("#run,stallable get_type(type_info(ARGUMENT_TYPES[%1]).element_type);", it_index));
+                
+                varargs_array_members := NewArray(make_varargs.expressions.count, *Code_Node);
+                for make_varargs.expressions {
+                    if make_varargs.element_type.type == .ANY {
+                        varargs_array_members[it_index] = make_procedure_call("copy_any", .{ expression = it });
+                    } else {
+                        varargs_array_members[it_index] = it;
                     }
-                    append(*builder, ");\n");
-                    continue argument;
                 }
+                varargs_array_literal := make_array_literal(varargs_element_type_inst, varargs_array_members);
                 
-                print(*builder, "callback.argument_values[%1] = copy_value(Ta%1, ", it_index);
-                Program_Print.print_expression(*builder, argument);
-                append(*builder, ");\n");
+                arguments_array_members[it_index] = make_procedure_call("copy_array", 
+                    // .{ expression = insert_type },
+                    .{ expression = varargs_array_literal },
+                );
+                
+              case;
+                arguments_array_members[it_index] = make_procedure_call("copy_value",
+                    .{ expression = argument_type_expression },
+                    .{ expression = argument },
+                );
             }
-            
-            // str := builder_to_string(*builder); write_string(str); return str;
-            return builder_to_string(*builder);
         }
-    } else {
-        argument_values := #insert -> Code {
-            procedure_call := compiler_get_nodes(procedure_call_expression).(*Code_Procedure_Call);
-            
-            assert(procedure_call.context_modification == null, "Context modifications are not supported in make_dynamic_callback.");
-            // {
-            //     builder: String_Builder;
-            //     print_code_nodes(*builder, procedure_call);
-            //     log(builder_to_string(*builder));
-            // }
-            
-            procedure_header := get_procedure_header(procedure_call);
-            assert(procedure_header != null, "Error: unable to get procedure header from code:\n%", sprintx(procedure_call));
-            
-            // {
-            //     builder: String_Builder;
-            //     print_code_nodes(*builder, procedure_header);
-            //     log(builder_to_string(*builder));
-            // }
-            
-            // log("procedure_header.arguments: %", procedure_header.arguments);
-            
-            // what if we cannot get the type instantiation for some argument?
-            // can we infer the type instantiation from the declaration in a robust way?
-            // if the type is an array or struct, we will have to be able to get the type instantiation from either the declaration or the literal value, I think
-            // otherwise, it may be some simple builtin type, in which case we can probably just use the type name reliably
-            // type_inst := get_type_inst_from_declaration(procedure_header.arguments[it_index]);
-            
-            arguments_array_members := NewArray(procedure_call.arguments_sorted.count, *Code_Node);
-            for argument: procedure_call.arguments_sorted {
-                // argument_type_expression := procedure_header.arguments[it_index].type_inst.(*Code_Node);
-                // if argument_type_expression == null {
-                    insert_type := New(Code_Directive_Insert);
-                    insert_type.expression = make_string_literal(tprint("ARGUMENT_TYPES[%];", it_index));
-                    argument_type_expression := insert_type;
-                // }
-                log("arg % type expr: %: %", it_index, argument_type_expression, sprintx(argument_type_expression));
-                
-                // assert(argument_type_expression != null, "type inst is null for argument %: %", it_index, procedure_header.arguments[it_index].*);
-                
-                if argument.kind == {
-                  case .MAKE_VARARGS;
-                    make_varargs := argument.(*Code_Make_Varargs);
-                    varargs_element_type_inst := get_type_inst_from_declaration(procedure_header.arguments[it_index]).array_element_type;
-                    assert(varargs_element_type_inst != null, "Error while trying to get varargs element type instantiation.");
-                    
-                    varargs_array_members := NewArray(make_varargs.expressions.count, *Code_Node);
-                    for make_varargs.expressions {
-                        if make_varargs.element_type.type == .ANY {
-                            varargs_array_members[it_index] = make_procedure_call("copy_any",
-                                .{ expression = it },
-                            );
-                        } else {
-                            varargs_array_members[it_index] = it;
-                        }
-                    }
-                    varargs_array_literal := make_array_literal(varargs_element_type_inst, varargs_array_members);
-                    
-                    arguments_array_members[it_index] = make_procedure_call("copy_array",
-                        // .{ expression = varargs_element_type_inst },
-                        .{ expression = varargs_array_literal },
-                    );
-                    
-                  case;
-                    // log("")
-                    arguments_array_members[it_index] = make_procedure_call("copy_value",
-                        .{ expression = argument_type_expression },
-                        .{ expression = argument },
-                    );
-                }
-            }
-            
-            // log("arguments_array_members:");
-            // for arguments_array_members {
-            //     log("%, ", it.(*Code_Procedure_Call).*);
-            // }
-            
-            arguments_array_literal := make_array_literal(get_type_inst_from_declaration_code(#code dummy: Any), arguments_array_members);
-            
-            log("arguments_array_literal: %", sprintx(arguments_array_literal));
-            
-            return compiler_get_code(arguments_array_literal);
-        };
-        callback.argument_values = array_copy(argument_values,, temp);
-    }
+        
+        arguments_array_literal := make_array_literal(get_type_inst_from_declaration_code(#code dummy: Any), arguments_array_members);
+        // log("arguments_array_literal: %", sprintx(arguments_array_literal));
+        return compiler_get_code(arguments_array_literal);
+    };
+    
+    callback.argument_values = array_copy(argument_values,, temp);
     
     if allocator.proc != temporary_allocator_proc {
         memory := alloc(allocation_size,, allocator);
@@ -479,53 +406,53 @@ sprintx :: (root: *Code_Node) -> string {
 }
 
 // TODO: make this less dumb
-try_infer_type_inst_from_expression :: (code: *Code_Node) -> *Code_Type_Instantiation {
-    // TODO: if code node type is some literal, we should be able to get type inst from that
-    if code.kind == {
-      case .LITERAL;
+// try_infer_type_inst_from_expression :: (code: *Code_Node) -> *Code_Type_Instantiation {
+//     // TODO: if code node type is some literal, we should be able to get type inst from that
+//     if code.kind == {
+//       case .LITERAL;
         
-    }
+//     }
     
-    if code.type.type == {
-      case .ANY;
+//     if code.type.type == {
+//       case .ANY;
         
         
-      case .BOOL;
-        return compiler_get_nodes(#code dummy: bool).(*Code_Declaration).type_inst;
+//       case .BOOL;
+//         return compiler_get_nodes(#code dummy: bool).(*Code_Declaration).type_inst;
         
-      case .INTEGER;
-        integer_info := code.type.(*Type_Info_Integer);
-        if integer_info.signed {
-            if integer_info.runtime_size == {
-              case 1; return compiler_get_nodes(#code dummy: s\8).(*Code_Declaration).type_inst;
-              case 2; return compiler_get_nodes(#code dummy: s16).(*Code_Declaration).type_inst;
-              case 4; return compiler_get_nodes(#code dummy: s32).(*Code_Declaration).type_inst;
-              case 8; return compiler_get_nodes(#code dummy: s64).(*Code_Declaration).type_inst;
-            }
-        } else {
-            if integer_info.runtime_size == {
-              case 1; return compiler_get_nodes(#code dummy: u\8).(*Code_Declaration).type_inst;
-              case 2; return compiler_get_nodes(#code dummy: u16).(*Code_Declaration).type_inst;
-              case 4; return compiler_get_nodes(#code dummy: u32).(*Code_Declaration).type_inst;
-              case 8; return compiler_get_nodes(#code dummy: u64).(*Code_Declaration).type_inst;
-            }
-        }
+//       case .INTEGER;
+//         integer_info := code.type.(*Type_Info_Integer);
+//         if integer_info.signed {
+//             if integer_info.runtime_size == {
+//               case 1; return compiler_get_nodes(#code dummy: s\8).(*Code_Declaration).type_inst;
+//               case 2; return compiler_get_nodes(#code dummy: s16).(*Code_Declaration).type_inst;
+//               case 4; return compiler_get_nodes(#code dummy: s32).(*Code_Declaration).type_inst;
+//               case 8; return compiler_get_nodes(#code dummy: s64).(*Code_Declaration).type_inst;
+//             }
+//         } else {
+//             if integer_info.runtime_size == {
+//               case 1; return compiler_get_nodes(#code dummy: u\8).(*Code_Declaration).type_inst;
+//               case 2; return compiler_get_nodes(#code dummy: u16).(*Code_Declaration).type_inst;
+//               case 4; return compiler_get_nodes(#code dummy: u32).(*Code_Declaration).type_inst;
+//               case 8; return compiler_get_nodes(#code dummy: u64).(*Code_Declaration).type_inst;
+//             }
+//         }
         
-      case .FLOAT;
-        if code.type.runtime_size == {
-          case 4; return compiler_get_nodes(#code dummy: float32).(*Code_Declaration).type_inst;
-          case 8; return compiler_get_nodes(#code dummy: float64).(*Code_Declaration).type_inst;
-        }
-    }
+//       case .FLOAT;
+//         if code.type.runtime_size == {
+//           case 4; return compiler_get_nodes(#code dummy: float32).(*Code_Declaration).type_inst;
+//           case 8; return compiler_get_nodes(#code dummy: float64).(*Code_Declaration).type_inst;
+//         }
+//     }
     
-    return null;
-}
+//     return null;
+// }
 
 get_type_inst_from_declaration :: (decl: *Code_Declaration) -> *Code_Type_Instantiation {
     assert(decl.kind == .DECLARATION, "decl must be a declaration, but it was %", decl.kind);
     type_inst := decl.type_inst;
     if !decl.type_inst {
-        type_inst := try_infer_type_inst_from_expression(decl.expression);
+        // type_inst := try_infer_type_inst_from_expression(decl.expression);
         assert(type_inst != null, "Error: Unable to infer type instantiation from expression: %", sprintx(decl.expression,, temp));
     }
     return type_inst;
@@ -559,6 +486,8 @@ make_identifier :: (name: string) -> *Code_Ident {
     return ident;
 }
 
+// TODO: make a version where we can just pass arguments as code in name = value format, or just as values
+//       maybe this is a trivial convenience, but it would be kinda nice
 make_procedure_call :: (procedure_name: string, arguments: ..Code_Argument) -> *Code_Procedure_Call {
     call := New(Code_Procedure_Call);
     call.procedure_expression = make_identifier(procedure_name);

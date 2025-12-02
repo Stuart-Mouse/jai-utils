@@ -32,26 +32,26 @@ get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_ti
     if !node  return null;
     
     if node.kind == {
-      case .PROCEDURE_HEADER; log("PROCEDURE_HEADER");
+      case .PROCEDURE_HEADER;
         return xx node;
         
-      case .IDENT; log("IDENT");
+      case .IDENT;
         ident := node.(*Code_Ident);
         return get_procedure_header(ident.resolved_declaration);
         
-      case .DIRECTIVE_BAKE; log("DIRECTIVE_BAKE");
+      case .DIRECTIVE_BAKE;
         bake := node.(*Code_Directive_Bake);
         return get_procedure_header(bake.procedure_call);
         
-      case .DECLARATION; log("DECLARATION");
+      case .DECLARATION;
         declaration := node.(*Code_Declaration);
         return get_procedure_header(declaration.expression);
         
-      case .DIRECTIVE_INSERT; log("DIRECTIVE_INSERT");
+      case .DIRECTIVE_INSERT;
         insert := node.(*Code_Directive_Insert);
         return get_procedure_header(insert.expansion);
         
-      case .PROCEDURE_CALL; log("PROCEDURE_CALL");
+      case .PROCEDURE_CALL;
         call := node.(*Code_Procedure_Call);
         // if (call.flags & .RETURNS_PROCEDURE_POINTER_ONLY)
         // || (call.flags & 0x400) {  // this means procedure_of_call was used
