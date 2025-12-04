@@ -67,7 +67,7 @@ Procedure_Info :: struct {
     returns:        [] Argument;
     call_wrapper:   Procedure_Call_Wrapper;
     
-    // #overlay(type) procedure_type_info: *Type_Info_Procedure;
+    #overlay(type) _type_info: *Type_Info_Procedure;
     
     Argument :: struct {
         name:           string;
@@ -80,10 +80,6 @@ Procedure_Info :: struct {
             IS_VARARGS;
         }
     }
-}
-
-get_type_info :: (procedure_info: Procedure_Info) -> *Type_Info_Procedure {
-    return procedure_info.type.(*Type_Info_Procedure);
 }
 
 get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
