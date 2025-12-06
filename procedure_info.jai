@@ -70,9 +70,8 @@ Procedure_Info :: struct {
     #overlay(type) _type_info: *Type_Info_Procedure;
     
     Argument :: struct {
-        name:           string;
-        flags:          Flags;
-        get_default:    #type () -> Any;
+        name:   string;
+        flags:  Flags;
         
         Flags :: enum_flags { 
             NONE :: 0; 
@@ -80,21 +79,37 @@ Procedure_Info :: struct {
             IS_VARARGS;
         }
     }
+    
+    get_default_argument_value: (int) -> Any;
 }
 
 get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
-    // We bake these arguments for each argument that has a default value.
-    get_default :: ($T: Type, $code: Code) -> Any {
-        ret := New_Any(xx T, initialized = false);
-        ret.value_pointer.(*T).* = #insert,scope(procedure_expression) code;
-        return ret;
-    }
+    PROCEDURE_INFO      :: #run get_procedure_info(PROCEDURE);
+    PROCEDURE_TYPE      :: type_of(PROCEDURE);
+    PROCEDURE_TYPE_INFO :: type_info(PROCEDURE_TYPE);
+    
+    // Dumping all the argument types here is necessary for our code generation below.
+    ARGUMENT_TYPE_COUNT :: #run PROCEDURE_TYPE_INFO.argument_types.count;
+    ARGUMENT_TYPES :: #run () -> [ARGUMENT_TYPE_COUNT] Type {
+        types: [ARGUMENT_TYPE_COUNT] Type;
+        for PROCEDURE_TYPE_INFO.argument_types {
+            // NOTE: It's a bit of a hack, but for varargs arguments we save the element type instead of the array type.
+            //       This is necessary for our code generation done below.
+            types[it_index] = get_type(
+                ifx PROCEDURE_INFO.arguments[it_index].flags & .IS_VARARGS
+                then it.(*Type_Info_Array).element_type else it
+            );
+        }
+        return types;
+    }();
     
     #insert -> string {
         builder: String_Builder;
         
         root := compiler_get_nodes(procedure_expression);
         procedure_header := get_procedure_header(root);
+        
+        // TODO: try to detect when procedure contains body and cannot properly be inserted, and provide a better error message.
         
         if procedure_header == null {
             append(*builder, "Warning: Unable to resolve procedure header from expression: ");
@@ -104,13 +119,6 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
         }
         
         assert(procedure_header.procedure_flags & .POLYMORPHIC == 0, "Cannot get procedure info for a polymorphic procedure.");
-        
-        procedure_type_info := procedure_header.type.(*Type_Info_Procedure);
-        append(*builder, "procedure :: #insert procedure_expression;\n");
-        append(*builder, "procedure_type_info :: type_info(type_of(procedure));\n");
-        for procedure_type_info.argument_types {
-            print(*builder, "Ta%1 :: #run (*procedure_type_info.argument_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
-        }
         
         // generate arguments array
         {
@@ -127,23 +135,6 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
                     append(*builder, " | .IS_VARARGS");
                 }
                 append(*builder, ", ");
-                
-                if it.expression {
-                    handled := false;
-                    if it.expression.kind == {
-                      case .DIRECTIVE_LOCATION;
-                        code_directive_location := it.expression.(*Code_Directive_Location);
-                        if code_directive_location.is_caller_location { 
-                            print(*builder, "get_default = #bake_arguments get_default(T = Ta%, code = #location(procedure_expression))", it_index);
-                            handled = true;
-                        }
-                    }
-                    if !handled {
-                        print(*builder, "get_default = #bake_arguments get_default(T = Ta%, code = #code ", it_index);
-                        Program_Print.print_expression(*builder, it.expression);
-                        append(*builder, ")");
-                    }
-                }
                 
                 append(*builder, "},\n");
             }
@@ -162,13 +153,76 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
         return builder_to_string(*builder);
     }
     
-    call_wrapper :: #bake_arguments call_procedure_checked(P = type_of(procedure));
+    get_default_argument_value :: (index: int) -> bool, Any {
+        #insert -> Code {
+            root := compiler_get_nodes(procedure_expression);
+            procedure_header := get_procedure_header(root);
+            
+            // TODO: try to detect when procedure contains body and cannot properly be inserted, and provide a better error message.
+            
+            if procedure_header == null {
+                append(*builder, "Warning: Unable to resolve procedure header from expression: ");
+                Program_Print.print_expression(*builder, root);
+                log(builder_to_string(*builder));
+                return "return .{};";
+            }
+            
+            assert(procedure_header.procedure_flags & .POLYMORPHIC == 0, "Cannot get procedure info for a polymorphic procedure.");
+            
+            cases: [..] *Code_Case;
+            
+            for procedure_header.arguments {                
+                if it.expression {
+                    argument_type_expression := compiler_get_nodes(#code ARGUMENT_TYPES[0]);
+                    argument_type_expression.(*Code_Binary_Operator).right.(*Code_Literal)._s64 = it_index;
+                    
+                    case_block := compiler_get_nodes(#code {
+                        ret := New(void, initialized = false);
+                        ret.* = #insert,scope(procedure_expression) "";
+                        return true, ret.*;
+                    });
+                    
+                    // replace void with actual argument type
+                    case_block.(*Code_Block)
+                        .statements[0].(*Code_Declaration)
+                        .expression.(*Code_Procedure_Call)
+                        .arguments_unsorted[0].expression = argument_type_expression;
+                    
+                    if it.expression.kind == .DIRECTIVE_LOCATION
+                    && it.expression.(*Code_Directive_Location).is_caller_location {
+                        case_block.(*Code_Block)
+                            .statements[0].(*Code_Declaration)
+                            .expression = compiler_get_nodes(#code #location(procedure_expression)));
+                    } else {
+                        // replace empty string in insert with it.expression
+                        case_block.(*Code_Block)
+                            .statements[0].(*Code_Declaration)
+                            .expression.(*Code_Directive_Insert)
+                            .expression = it.expression;
+                    }
+                    
+                    case_node := New(Code_Case);
+                    case_node.condition  = make_integer_literal(it_index);
+                    case_node.then_block = case_block;
+                    
+                    array_add(*cases, case_node);
+                }
+            }
+            
+            // TODO: implement make_if_case
+            switch := make_if_case(number, cases);
+            return compiler_get_code(switch);
+        }
+        
+        return false, Any.{};
+    }
     
-    return .{ 
-        type_of(procedure), 
-        arguments, 
-        returns, 
-        xx call_wrapper 
+    return Procedure_Info.{
+        _type                       = PROCEDURE_TYPE, 
+        arguments                   = arguments, 
+        returns                     = returns, 
+        call_wrapper                = xx #bake_arguments call_procedure_checked(P = PROCEDURE_TYPE),
+        get_default_argument_value  = get_default_argument_value,
     };
 }
 
