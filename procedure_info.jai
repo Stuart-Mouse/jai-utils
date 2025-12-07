@@ -218,7 +218,7 @@ get_procedure_info :: ($procedure_expression: Code, $scope := #caller_code) -> P
             block.block_type = .IMPERATIVE;
             block.statements = cases;
             
-            log("block: %", sprintx(block));
+            // log("block: %", sprintx(block));
             
             return compiler_get_code(block);
         }
