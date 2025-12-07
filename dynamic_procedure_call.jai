@@ -242,17 +242,26 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
         return __copy_value(values);
     }
     
-    // TODO: maybe pass type instantiation as well so that we can ensure the proper type is inserted here. (A cast may be necessary in some cases).
-    make_argument_inserter :: (argument: *Code_Node) -> *Code_Node #compile_time {
-        root := compiler_get_nodes(#code #insert,scope(procedure_call_code) #code 0);
+    // TODO: test that type cast works properly here and does what we want it to do.
+    //       create test case that fails with old code and passes with new code so we can demonstrate this.
+    // NOTE: Technically, we should not be able to cast to struct types, but compiler seems to be ok with it here, 
+    //       probably because it is already that type. But noting this since it could potentially be a concern later on if we see issues.
+    make_argument_inserter :: (argument: *Code_Node, type_expression: *Code_Node) -> *Code_Node #compile_time {
+        // root := compiler_get_nodes(#code #insert,scope(procedure_call_code) #code 0);
+        root := compiler_get_nodes(#code (#insert,scope(procedure_call_code) #code 0).(int));
         
-        root.(*Code_Directive_Insert)
+        // root.(*Code_Directive_Insert)
+        //     .expression.(*Code_Directive_Code)
+        //     .expression = argument;
+        
+        root.(*Code_Cast)
+            .expression.(*Code_Directive_Insert)
             .expression.(*Code_Directive_Code)
             .expression = argument;
         
-        log("expression: %", root.(*Code_Directive_Insert).expression.(*Code_Directive_Code).expression.*);
+        root.(*Code_Cast).target_type.* = .{ type_valued_expression = type_expression };
         
-        // TODO: insert cast here
+        log("argument inserter: %", sprintx(root));
         
         return root;
     }
@@ -264,7 +273,7 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
         return compiler_get_code(procedure_call, procedure_call_code);
     }
     
-    PROCEDURE_INFO      :: #run get_procedure_info(PROCEDURE);
+    PROCEDURE_INFO      :: #run get_procedure_info(PROCEDURE, procedure_call_code);
     PROCEDURE_TYPE      :: type_of(PROCEDURE);
     PROCEDURE_TYPE_INFO :: type_info(PROCEDURE_TYPE);
     
@@ -321,7 +330,7 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
                             .{ expression = it }
                         );
                     } else {
-                        varargs_array_members[it_index] = make_argument_inserter(it);
+                        varargs_array_members[it_index] = make_argument_inserter(it, argument_type_expression);
                     }
                 }
                 varargs_array_literal := make_array_literal(null, varargs_array_members);
@@ -333,13 +342,13 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
                 
               case;
                 arguments_array_members[it_index] = make_procedure_call("__copy_value",
-                    .{ expression = make_argument_inserter(argument) },
+                    .{ expression = make_argument_inserter(argument, argument_type_expression) },
                 );
             }
         }
         
         arguments_array_literal := make_array_literal(get_type_inst_from_declaration_code(#code dummy: Any), arguments_array_members);
-        log("arguments_array_literal: %", sprintx(arguments_array_literal));
+        // log("arguments_array_literal: %", sprintx(arguments_array_literal));
         return compiler_get_code(arguments_array_literal, null);
     };
     
@@ -429,26 +438,53 @@ make_procedure_call :: (procedure_expression: *Code_Node, arguments: ..Code_Argu
     return call;
 }
 
+make_if_case :: (condition: *Code_Node, cases: ..*Code_Case) -> *Code_If {
+    if_node := New(Code_If);
+    if_node.condition = condition;
+    if_node.then_block = New(Code_Block);
+    
+    if_node.then_block.statements = cast,force([]*Code_Node) cases;
+    for cases {
+        it.then_block.node_flags = .IS_PARENTHESIZED;
+        it.then_block.owning_statement = cases[0];
+    }
+    
+    if_node.if_flags = .IS_SWITCH_STATEMENT;
+    return if_node;
+}
 
+// TODO: test inserting the procedure as a string using program print. I reckon that will fail also
+
+// Basic insert fails here.
 // insert_procedure :: ($procedure_code: Code) {
-//     PROCEDURE :: #insert,scope(procedure_code) -> string {
-//         procedure_code
-//     }
+//     PROCEDURE :: #insert procedure_code;
 //     PROCEDURE(5);
 // }
 
-// insert_procedure :: ($procedure_code: Code, $scope: Code) {
+// insert,scope() fails also, whether using procedure_code or other, separately provided scope.
+// insert_procedure :: ($procedure_code: Code, $scope := #caller_code) {
 //     PROCEDURE :: #insert,scope(scope) procedure_code;
 //     PROCEDURE(5);
 // }
 
-// insert_procedure :: ($procedure_code: Code, $scope: Code) {
+// Getting the nodes and then calling compiler_get_code with the target scope fares no better.
+// insert_procedure :: ($procedure_code: Code, $scope := #caller_code) {
 //     PROCEDURE :: #insert -> Code {
 //         root := compiler_get_nodes(procedure_code);
 //         return compiler_get_code(root, scope);
 //     }
 //     PROCEDURE(5);
 // }
+
+// Yet, this one works. It's almost like the compiler is just not propogating the scope through procedure headers for some reason, 
+// but if we remove the argument expression from its context and insert it alone, then it gets the proper scope.
+get_procedure_first_argument_default_value :: ($procedure_code: Code, $scope := #caller_code) {
+    DEFAULT_VALUE :: #insert -> Code {
+        root := compiler_get_nodes(procedure_code).(*Code_Procedure_Header);
+        return compiler_get_code(root.arguments[0].expression, scope);
+    };
+    log("%", DEFAULT_VALUE);
+}
 
 
 

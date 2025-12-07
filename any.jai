@@ -172,19 +172,21 @@ memcpy_any :: (dst: Any, src: Any) {
 */
 
 Any_Proc :: struct {
-    using proc_info:    *Type_Info_Procedure;
+    _type:      Type;   // Underscore is to prevent collision with _type_info.type
     pointer:    *void;
+    
+    #overlay(_type) using _type_info: *Type_Info_Procedure;
     
     from :: to_any_proc;
 }
 
 to_any_proc :: inline (any: Any) -> Any_Proc { 
     assert(any.type.type == .PROCEDURE);
-    return .{ xx any.type, any.value_pointer.(**void).* };
+    return .{ as_type(any.type), any.value_pointer.(**void).* };
 }
 
 to_any :: inline (any: *Any_Proc) -> Any {
-    return Any.{ any.proc_info, *any.pointer };
+    return Any.{ any._type_info, *any.pointer };
 }
 
 

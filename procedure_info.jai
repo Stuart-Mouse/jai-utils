@@ -62,13 +62,17 @@ get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_ti
 }
 
 Procedure_Info :: struct {
-    type:           Type;
+    _type:          Type;
     arguments:      [] Argument;
     returns:        [] Argument;
+    
+    // TODO: include pointer to procedure?
     call_wrapper:   Procedure_Call_Wrapper;
     
-    #overlay(type) _type_info: *Type_Info_Procedure;
+    #overlay(_type) using _type_info: *Type_Info_Procedure;
     
+    // TODO: maybe we should have separate arrays for each rather than an array of structs
+    //       main reason being that we already have argument/return types in a separate array in _type_info
     Argument :: struct {
         name:   string;
         flags:  Flags;
@@ -80,11 +84,13 @@ Procedure_Info :: struct {
         }
     }
     
-    get_default_argument_value: (int) -> Any;
+    get_default_argument_value: (int) -> bool, Any;
 }
 
-get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
-    PROCEDURE_INFO      :: #run get_procedure_info(PROCEDURE);
+// TODO: should return a pointer to constant data, probably
+// NOTE: scope parameter is required because there is seemingly some bug with procedure expressions not properly working with #insert,scope
+get_procedure_info :: ($procedure_expression: Code, $scope := #caller_code) -> Procedure_Info #expand {
+    PROCEDURE           :: #insert procedure_expression;
     PROCEDURE_TYPE      :: type_of(PROCEDURE);
     PROCEDURE_TYPE_INFO :: type_info(PROCEDURE_TYPE);
     
@@ -93,12 +99,7 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
     ARGUMENT_TYPES :: #run () -> [ARGUMENT_TYPE_COUNT] Type {
         types: [ARGUMENT_TYPE_COUNT] Type;
         for PROCEDURE_TYPE_INFO.argument_types {
-            // NOTE: It's a bit of a hack, but for varargs arguments we save the element type instead of the array type.
-            //       This is necessary for our code generation done below.
-            types[it_index] = get_type(
-                ifx PROCEDURE_INFO.arguments[it_index].flags & .IS_VARARGS
-                then it.(*Type_Info_Array).element_type else it
-            );
+            types[it_index] = get_type(it);
         }
         return types;
     }();
@@ -161,63 +162,71 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
             // TODO: try to detect when procedure contains body and cannot properly be inserted, and provide a better error message.
             
             if procedure_header == null {
+                builder: String_Builder;
                 append(*builder, "Warning: Unable to resolve procedure header from expression: ");
                 Program_Print.print_expression(*builder, root);
                 log(builder_to_string(*builder));
-                return "return .{};";
+                assert(false);
             }
             
             assert(procedure_header.procedure_flags & .POLYMORPHIC == 0, "Cannot get procedure info for a polymorphic procedure.");
             
-            cases: [..] *Code_Case;
+            cases: [..] *Code_Node;
             
             for procedure_header.arguments {                
                 if it.expression {
                     argument_type_expression := compiler_get_nodes(#code ARGUMENT_TYPES[0]);
                     argument_type_expression.(*Code_Binary_Operator).right.(*Code_Literal)._s64 = it_index;
                     
-                    case_block := compiler_get_nodes(#code {
-                        ret := New(void, initialized = false);
-                        ret.* = #insert,scope(procedure_expression) "";
-                        return true, ret.*;
-                    });
+                    case_node := compiler_get_nodes(#code if index == 0 {}).(*Code_If);
+                    // log("condition: %", case_node.condition.(*Code_If).condition.*);
                     
-                    // replace void with actual argument type
-                    case_block.(*Code_Block)
+                    case_node.condition.(*Code_Binary_Operator)
+                        .right.(*Code_Literal)._s64 = it_index;
+                    
+                    case_node.then_block = compiler_get_nodes(#code {
+                        ret := New(void, initialized = false);
+                        ret.* = #insert,scope(scope) #code 0;
+                        return true, ret.*;
+                    }).(*Code_Block);
+                    
+                    // replace `void` with actual argument type
+                    case_node.then_block
                         .statements[0].(*Code_Declaration)
                         .expression.(*Code_Procedure_Call)
                         .arguments_unsorted[0].expression = argument_type_expression;
                     
                     if it.expression.kind == .DIRECTIVE_LOCATION
                     && it.expression.(*Code_Directive_Location).is_caller_location {
-                        case_block.(*Code_Block)
-                            .statements[0].(*Code_Declaration)
-                            .expression = compiler_get_nodes(#code #location(procedure_expression)));
+                        case_node.then_block
+                            .statements[1].(*Code_Binary_Operator)
+                            .right = compiler_get_nodes(#code #location(procedure_expression));
                     } else {
-                        // replace empty string in insert with it.expression
-                        case_block.(*Code_Block)
-                            .statements[0].(*Code_Declaration)
-                            .expression.(*Code_Directive_Insert)
+                        // replace `#code 0` in insert with it.expression
+                        case_node.then_block
+                            .statements[1].(*Code_Binary_Operator)
+                            .right.(*Code_Directive_Insert)
+                            .expression.(*Code_Directive_Code)
                             .expression = it.expression;
                     }
-                    
-                    case_node := New(Code_Case);
-                    case_node.condition  = make_integer_literal(it_index);
-                    case_node.then_block = case_block;
                     
                     array_add(*cases, case_node);
                 }
             }
             
-            // TODO: implement make_if_case
-            switch := make_if_case(number, cases);
-            return compiler_get_code(switch);
+            block := New(Code_Block);
+            block.block_type = .IMPERATIVE;
+            block.statements = cases;
+            
+            log("block: %", sprintx(block));
+            
+            return compiler_get_code(block);
         }
         
         return false, Any.{};
     }
     
-    return Procedure_Info.{
+    return .{
         _type                       = PROCEDURE_TYPE, 
         arguments                   = arguments, 
         returns                     = returns, 
@@ -226,15 +235,15 @@ get_procedure_info :: ($procedure_expression: Code) -> Procedure_Info #expand {
     };
 }
 
-get_default_argument_value :: (info: Procedure_Info, argument_name: string) -> bool, Any {
-    for info.arguments {
-        if it.name == argument_name { 
-            if !(it.flags & .HAS_DEFAULT_VALUE)  return false, Any.{};
-            return true, it.get_default();
-        }
-    }
-    return false, Any.{};
-}
+// get_default_argument_value :: (info: Procedure_Info, argument_name: string) -> bool, Any {
+//     for info.arguments {
+//         if it.name == argument_name { 
+//             if !(it.flags & .HAS_DEFAULT_VALUE)  return false, Any.{};
+//             return true, it.get_default();
+//         }
+//     }
+//     return false, Any.{};
+// }
 
 
 #scope_module
