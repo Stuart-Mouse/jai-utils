@@ -169,6 +169,8 @@ memcpy_any :: (dst: Any, src: Any) {
         whereas in a normal Any, we actually get a pointer to a pointer to a procedure.
     The removal of this extra indirection is really important if you want to store or pass around a procedure with its type info.
     For example, I use this in Lead Sheets for all external procedures that are passed into the script's context.
+    
+    TODO: See if we can make the pointer be some proceudre type like (void) -> void and still get proper remapping if we try to return an Any_Proc from compile-time execution.
 */
 
 Any_Proc :: struct {
@@ -200,7 +202,8 @@ to_any :: inline (any: *Any_Proc) -> Any {
     TODO: some kind of metaprogram thing to prevent passing these special Any_X structs implicitly as an Any would be helpful.
           or, would be nice if we could just modify how these structs get coerced to Any so that they have more intuitive behavior.
     
-    NOTE: Any_Number uses type: Type and overlays a type info pointer so that you can return one from compile-time execution without error, if you so wish.
+    NOTE: Any_Number uses an actual Type for its type field (unlike Any) and overlays a *Type_Info so that you can return one from compile-time execution if you so wish, e.g. `#run Any_Number.from(35)`
+    TODO: Evaluate if this change is actually useful, and if not then maybe just revert it since it does add just a bit of (possibly needless) complexity.
 */
 
 Any_Number :: struct {
@@ -278,7 +281,7 @@ negate_number :: inline (any: *Any_Number) -> bool {
     return false;
 }
 
-
+// TODO: maybe add pointer, could do so with #overlay to keep Any_Number returnable from #run's
 Number_Union :: union {
     as_u\8:     u\8;
     as_u16:     u16;
@@ -304,7 +307,7 @@ to_number_union :: inline (value: $T) -> Number_Union #modify {
     return result;
 }
 
-// NOTE: just a simple bitwise comparison, does consider actual stored type
+// NOTE: just a simple bitwise comparison, does not consider actual stored type
 operator == :: (a: Number_Union, b: Number_Union) -> bool {
     return (*a).(*u64).* == (*b).(*u64).*;
 }
