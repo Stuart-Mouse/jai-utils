@@ -393,7 +393,7 @@ parse_number :: (s: string) -> result: Any_Number, success: bool, remainder: str
     } else {
         // use s64 unless u64 value would be out of range
         ret := Any_Number.from(u64_value);
-        if u64_value <= S64_MAX.(u64) then ret.type = type_info(s64);
+        if u64_value <= S64_MAX.(u64) then ret._type_info = type_info(s64);
         return ret, true, remainder;
     }
 }

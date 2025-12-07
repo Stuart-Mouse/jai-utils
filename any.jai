@@ -199,21 +199,24 @@ to_any :: inline (any: *Any_Proc) -> Any {
     
     TODO: some kind of metaprogram thing to prevent passing these special Any_X structs implicitly as an Any would be helpful.
           or, would be nice if we could just modify how these structs get coerced to Any so that they have more intuitive behavior.
+    
+    NOTE: Any_Number uses type: Type and overlays a type info pointer so that you can return one from compile-time execution without error, if you so wish.
 */
 
 Any_Number :: struct {
-    type:  *Type_Info;
-    using value:  Number_Union;
+    type:  Type;
+    #overlay(type) _type_info: *Type_Info;
+    
+    using,except(from) value:  Number_Union;
     
     from :: to_any_number;
-    from :: any_to_any_number;
     
     zero_of_type :: inline (T: Type) -> Any_Number { 
         return zero_of_type(T.(*Type_Info)); 
     };
     zero_of_type :: inline (T: *Type_Info) -> Any_Number { 
         assert(can_store_type(T));
-        return Any_Number.{ type = T }; 
+        return Any_Number.{ _type_info = T }; 
     };
     
     can_store_type :: inline (T: Type) -> bool { return can_store_type(T.(*Type_Info)); };
@@ -221,30 +224,29 @@ Any_Number :: struct {
 }
 
 to_any :: inline (any: *Any_Number) -> Any { 
-    return Any.{ any.type, *any.value }; 
+    return Any.{ any._type_info, *any.value }; 
 };
 
-get_as :: inline ($T: Type, any: Any_Number) -> T, bool #modify {
+get_as :: inline ($T: Type, any: Any_Number) -> bool, T #modify {
     return Any_Number.can_store_type(T);
 } {
     // TODO: add case for reading through value_pointer later, if we decide to do that sort of thing.
-    return (*any.value).(*T).*, any.type == type_info(T);
+    return any._type_info == type_info(T), (*any.value).(*T).*;
 }
 
 to_any_number :: inline (value: $T) -> Any_Number #modify {
-    return Any_Number.can_store_type(T);
+    return T.(*Type_Info).type == .ANY || Any_Number.can_store_type(T);
 } { 
-    ret := Any_Number.{ type = type_info(T) }; 
-    (*ret.value).(*T).* = value;
-    return ret;
-}
-
-any_to_any_number :: inline (value: Any) -> Any_Number {
-    assert(Any_Number.can_store_type(value.type));
-    
-    ret := Any_Number.{ type = value.type }; 
-    memcpy(*ret.value, value.value_pointer, value.type.runtime_size);
-    return ret;
+    #if type_info(T).type == .ANY {
+        assert(Any_Number.can_store_type(value.type));
+        ret := Any_Number.{ _type_info = value.type }; 
+        memcpy(*ret.value, value.value_pointer, value.type.runtime_size);
+        return ret;
+    } else {
+        ret := Any_Number.{ type = T }; 
+        (*ret.value).(*T).* = value;
+        return ret;
+    }
 }
 
 // TODO: maybe we want to move this to some separate file for dynamic math stuff...
