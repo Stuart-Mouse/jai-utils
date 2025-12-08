@@ -247,12 +247,7 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
     // NOTE: Technically, we should not be able to cast to struct types, but compiler seems to be ok with it here, 
     //       probably because it is already that type. But noting this since it could potentially be a concern later on if we see issues.
     make_argument_inserter :: (argument: *Code_Node, type_expression: *Code_Node) -> *Code_Node #compile_time {
-        // root := compiler_get_nodes(#code #insert,scope(procedure_call_code) #code 0);
         root := compiler_get_nodes(#code (#insert,scope(procedure_call_code) #code 0).(int));
-        
-        // root.(*Code_Directive_Insert)
-        //     .expression.(*Code_Directive_Code)
-        //     .expression = argument;
         
         root.(*Code_Cast)
             .expression.(*Code_Directive_Insert)
@@ -261,7 +256,7 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
         
         root.(*Code_Cast).target_type.* = .{ type_valued_expression = type_expression };
         
-        log("argument inserter: %", sprintx(root));
+        // log("argument inserter: %", sprintx(root));
         
         return root;
     }
