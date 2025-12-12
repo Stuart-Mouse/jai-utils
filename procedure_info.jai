@@ -165,8 +165,9 @@ get_procedure_info :: ($procedure_expression: Code, $scope := #caller_code) -> P
                 builder: String_Builder;
                 append(*builder, "Warning: Unable to resolve procedure header from expression: ");
                 Program_Print.print_expression(*builder, root);
-                log(builder_to_string(*builder));
-                assert(false);
+                
+                error_string := builder_to_string(*builder);
+                assert(false, error_string);
             }
             
             assert(procedure_header.procedure_flags & .POLYMORPHIC == 0, "Cannot get procedure info for a polymorphic procedure.");
