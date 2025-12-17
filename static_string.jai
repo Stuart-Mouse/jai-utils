@@ -3,6 +3,8 @@
 Static_String :: struct(capacity: int) {
     count:  s64;
     data:   [capacity] u8;
+    
+    from :: #bake_arguments to_static_string(capacity = capacity);
 }
 
 to_string :: inline (s: *Static_String) -> string {
