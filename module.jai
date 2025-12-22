@@ -22,6 +22,8 @@
 
 // ========== General Purpose ==========
 
+u0 :: void;
+
 memzero :: (t: *$T) { memset(t, 0, size_of(T)); };
 
 all_bytes_are_zero :: (any: Any) -> bool {
@@ -54,6 +56,12 @@ is_within_range :: inline (value: $T, low: T, high: T) -> bool #modify {
 defer_restore :: (value: *$T) #expand {
     value_before := value.*;
     `defer value.* = value_before;
+}
+
+push_value_of :: (var: *$T, value: T) #expand {
+    value_before := var.*;
+    var.* = value;
+    `defer var.* = value_before;
 }
 
 offset_of :: inline ($T: Type, $member: string) -> int {
