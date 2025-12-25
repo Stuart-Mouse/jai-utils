@@ -471,9 +471,9 @@ make_if_case :: (condition: *Code_Node, cases: ..*Code_Case) -> *Code_If {
 //     PROCEDURE(5);
 // }
 
-// Yet, this one works. It's almost like the compiler is just not propogating the scope through procedure headers for some reason, 
+// Yet, this one works. It's almost like the compiler is just not propagating the scope through procedure headers for some reason, 
 // but if we remove the argument expression from its context and insert it alone, then it gets the proper scope.
-get_procedure_first_argument_default_value :: ($procedure_code: Code, $scope := #caller_code) {
+get_default_value_of_first_procedure_argument :: ($procedure_code: Code, $scope := #caller_code) {
     DEFAULT_VALUE :: #insert -> Code {
         root := compiler_get_nodes(procedure_code).(*Code_Procedure_Header);
         return compiler_get_code(root.arguments[0].expression, scope);
@@ -547,6 +547,7 @@ log_arguments :: ($procedure_call_code: Code) #expand {
         return compiler_get_code(block, procedure_call_code);
     }
 }
+
 
 
 
