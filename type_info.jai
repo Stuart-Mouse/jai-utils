@@ -15,6 +15,11 @@ is_union_type :: (ti: *Type_Info) -> bool {
     return ti.type == .STRUCT && (ti.(*Type_Info_Struct).textual_flags & .UNION);
 }
 
+is_tagged_union_type :: inline (T: Type) -> bool { return is_tagged_union_type(T.(*Type_Info)); }
+is_tagged_union_type :: (ti: *Type_Info) -> bool {
+    return ti.type == .STRUCT && (ti.(*Type_Info_Struct).textual_flags & (.UNION | UNION_IS_TAGGED) == (.UNION | UNION_IS_TAGGED));
+}
+
 is_aggregate :: inline (T: Type) -> bool { return is_aggregate(T.(*Type_Info)); }
 is_aggregate :: inline (ti: *Type_Info) -> bool {
     if ti.type == {
@@ -128,4 +133,43 @@ union_contains_type :: (union_info: *Type_Info_Struct, type: *Type_Info) -> bool
         if it.type == type
             return true;
     return false;
+}
+
+get_union_kind_type :: (union_info: *Type_Info_Struct) -> *Type_Info {
+    assert(is_tagged_union_type(union_info), "any_union was not a tagged union type!");
+    assert(union_info.members[0].name == "kind", "tagged union did not contain 'kind' as its first member!"); // I assume this is always the case. If this is not true then we will need to search through the members to find kind.
+    return union_info.members[0].type;
+}
+
+get_union_kind :: (any_union: Any) -> Any {
+    assert(is_tagged_union_type(any_union.type), "any_union was not a tagged union type!");
+    
+    union_info := any_union.type.(*Type_Info_Struct);
+    assert(union_info.members[0].name == "kind", "tagged union did not contain 'kind' as its first member!"); // I assume this is always the case. If this is not true then we will need to search through the members to find kind.
+    union_kind_member_info := *union_info.members[0];
+    
+    return Any.{ union_kind_member_info.type, any_union.value_pointer + union_kind_member_info.offset_in_bytes };
+}
+
+get_valid_union_member :: (any_union: Any) -> Any {
+    kind := get_union_kind(any_union); // will assert that any_union is actually a tagged union
+    if kind.type.type == {
+      case .INTEGER;
+        // TODO
+        assert(false, "union with kind: Type is not yet supported");
+        
+      case .ENUM;
+        // NOTE: I am assuming here that negative values are not premitted in a union kine enum. Need to check this.
+        // Also, we will hoppefully have better ability to map enum values to union members in the future, which will require new logic here...
+        // kind_as_u64: u64;
+        // if 
+        // valid_member_info := union_info.members[kind_as_u64];
+        
+      case .TYPE;
+        // TODO
+        assert(false, "union with kind: Type is not yet supported");
+    }
+    
+    assert(false, "invalid union kind: %", kind.type.type);
+    return .{};
 }

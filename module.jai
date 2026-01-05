@@ -18,6 +18,7 @@
 #load "fixed_bit_array.jai";
 #load "slot_array.jai";
 #load "dynamic_procedure_call.jai";
+#load "Any_Hash_Table.jai";
 
 
 // ========== General Purpose ==========

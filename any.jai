@@ -101,6 +101,23 @@ get_member :: (any_struct: Any, member_info: *Type_Info_Struct_Member) -> member
     return Any.{ member_info.type, any_struct.value_pointer + member_info.offset_in_bytes };
 }
 
+// get_specified_parameter :: (any_struct: Any, member_name: string) -> bool, Any, *Type_Info_Struct_Member {
+//     struct_info := any_struct.type.(*Type_Info_Struct);
+//     assert(struct_info.type == .STRUCT);
+    
+//     member_info, member_offset := get_field(struct_info, member_name);
+//     for struct_info.specified_parameters
+    
+    
+//     if member_info {
+//         if member_info.flags & .CONSTANT {
+//             return true, Any.{ member_info.type, struct_info.constant_storage.data + member_info.offset_into_constant_storage }, member_info;
+//         }
+//         return true, Any.{ member_info.type, any_struct.value_pointer + member_info.offset_in_bytes }, member_info;
+//     }
+//     return false, NULL_ANY, null;
+// } 
+
 
 Struct_Member_Iterator_Flags :: enum_flags {
     SKIP_CONSTANT;
@@ -360,10 +377,13 @@ operator []= :: set_index;
 
 for_expansion :: (array: Any_Array, body: Code, for_flags: For_Flags) #expand {
     count, data := get_count_and_data(array);
-    `it := Any.{ array.element_type, data };
-    for `it_index: 0..count-1 {
+    `it       := Any.{ array.element_type, data };
+    `it_index := 0;
+    while it_index < count {
+        defer {
+            it.value_pointer += array.element_type.runtime_size;
+        }
         #insert body;
-        it.value_pointer += array.element_type.runtime_size;
     }
 }
 
@@ -426,7 +446,7 @@ init_range :: (array: Any_Array, begin: s64, count: s64) {
         }
     }
     
-    memset(array_data + begin * array.element_type.runtime_size, 0, count * array.element_type.runtime_size );
+    memset(array_data + begin * array.element_type.runtime_size, 0, count * array.element_type.runtime_size);
 }
 
 array_view :: (array: Any_Array, index: int, count := S64_MAX) -> Many_Any {
@@ -435,7 +455,7 @@ array_view :: (array: Any_Array, index: int, count := S64_MAX) -> Many_Any {
     assert(index >= 0, "index = %", index);
     assert(count >= 0, "count = %", count);
     
-	result: Many_Any = ---;
+    result: Many_Any = ---;
     result.info = array.element_type;
     
     if index >= array_count {
@@ -455,19 +475,96 @@ array_view :: (array: Any_Array, index: int, count := S64_MAX) -> Many_Any {
     Using this removes the need for 2 levels of indirection to the underlying array data.
 */
 Many_Any :: struct {
-    using info:  *Type_Info; // element type info
-    data:        *void;
-    count:       s64;
+    using element_type: *Type_Info; // element type info
+    using array_view:   Array_View_64;
+    
+    from :: make_many_any;
+}
+
+make_many_any :: (any: Any) -> Many_Any {
+    assert(!(any.type.type == .ARRAY && any.type.(*Type_Info_Array).array_type == .VIEW), "A Many_Any can only be made from an array view. Got type '%'.", as_type(any.type));
+    raw_array := any.value_pointer.(*Array_View_64).*;
+    return .{ xx any.type, raw_array };
 }
 
 for_expansion :: (view: Many_Any, body: Code, for_flags: For_Flags) #expand {
-    `it := Any.{ view.info, view.data };
-    for `it_index: 0..view.count-1 {
+    `it       := Any.{ view.element_type, view.data };
+    `it_index := 0;
+    while it_index < view.count {
+        defer {
+            it.value_pointer += view.element_type.runtime_size;
+            it_index += 1;
+        }
         #insert body;
-        it.value_pointer += view.info.runtime_size;
     }
 }
 
-// TODO: make_many_any
-// TODO: many_any resize / allocate
+get_index :: inline (view: Many_Any, index: int) -> Any, bool {
+    if index < 0 || index >= view.count {
+        return NULL_ANY, false;
+    }
+    return Any.{ view.element_type, view.data + (index * view.element_type.runtime_size) }, true;
+}
+operator [] :: get_index;
+
+
+set_index :: inline (view: Many_Any, index: int, value: Any) {
+    assert(index > 0 && index < view.count, "Array index % is out of bounds. count = %", index, view.count);
+    
+    element := Any.{ view.element_type, view.data + (index * view.element_type.runtime_size) };
+    memcpy_any(element, value);
+}
+operator []= :: set_index;
+
+
+array_view :: (view: Many_Any, index: int, count := S64_MAX) -> Many_Any {
+    assert(index >= 0, "index = %", index);
+    assert(count >= 0, "count = %", count);
+    
+    result: Many_Any = ---;
+    result.element_type = view.element_type;
+    
+    if index >= view.count {
+        return result;
+    }
+    if index + count > view.count {
+        count = view.count - index;
+    }
+    
+    result.count = count;
+    result.data  = view.data + index * view.element_type.runtime_size;
+    return result;
+}
+
+New_Many_Any :: (count: int, type: *Type_Info, $$initialize := true) -> Many_Any {
+    view := Many_Any.{
+        element_type = type,
+        data         = alloc(count * type.runtime_size),
+        count        = count,
+    };
+    if initialize  init_range(view, 0, count);
+    return view;
+}
+
+// TODO: deduplicate with Any_Array's init_range, just pass required info for both to work
+//       maybe also do the same for array_view, idk
+init_range :: (view: Many_Any, begin: s64, count: s64) {
+    if count <= 0  return;
+    
+    assert(begin >= 0 && begin + count <= view.count, "begin: %, count: %, array_count: %", begin, count, view.count);
+    
+    if view.element_type.type == .STRUCT {
+        struct_info := view.element_type.(*Type_Info_Struct);
+        if struct_info.initializer {
+            for array_view(view, begin, count) {
+                struct_info.initializer(it.value_pointer);
+            }
+            return;
+        }
+    }
+    
+    memset(view.data + begin * view.element_type.runtime_size, 0, count * view.element_type.runtime_size );
+}
+
+// TODO: many_any resize/realloc
 
