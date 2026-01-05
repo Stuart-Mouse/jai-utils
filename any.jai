@@ -568,3 +568,38 @@ init_range :: (view: Many_Any, begin: s64, count: s64) {
 
 // TODO: many_any resize/realloc
 
+
+// Any_Poly :: struct(T: Type) #modify {
+//     struct_info := T.(*Type_Info);
+//     if struct_info.type != .STRUCT  return false, "Provided type must be a struct.";
+//     return true;
+// } {
+//     #insert -> string {
+//         // given type T must also be polymorphic
+//         // then we scan the declaration/type info and we copy over fields
+//         // if the field is of polymorphic type, we replace it with an Any
+//         // if the field is not polymorphic, we just replace it with a pointer to the base type
+        
+//         // we probably need to take the base type/struct as code so that we can reject it if it does anything too funky
+//         // for example, there's no realistic way we can handle some polymorphic type like an Enumerated_Array
+        
+//         // this idea may not really work, tbh...
+//         // and would even do us any good in, for example, the Table.Entry case, since that type is not really polymoprhic within the context of the table itself.
+//     }
+// }
+
+// something maybe smarter to replace the Many_Any
+// if no Iterator_Type is provided, this is just a Many_Any
+// we will try to do some crazy for_expansion code gen stuff
+// Any_Array_View :: struct(Iterator_Type: Type = Any) #modify {
+//     if Iterator_Type == Any  return true;
+    
+//     struct_info := Element_Type.(*Type_Info);
+//     if struct_info.type != .STRUCT  return false, "Provided type must be a struct.";
+//     return true;
+// } {
+    
+    
+// }
+
+
