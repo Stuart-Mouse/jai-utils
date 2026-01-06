@@ -141,7 +141,7 @@ iterate_table_entries :: (entries: Many_Any, body: Code, flags: For_Flags) #expa
         defer {
             it_index                += 1;
             it.value_pointer        += it.type.runtime_size;
-            it_hash                 += it.type.runtime_size;
+            it_hash                  = it_hash.(*void) + it.type.runtime_size;
             it_key.value_pointer    += it.type.runtime_size;
             it_value.value_pointer  += it.type.runtime_size;
         }
@@ -479,6 +479,7 @@ _internal_resize_memory :: (table: *Any_Table, slots_to_allocate: int) {
     table.allocated = n;
     
     new_entries := New_Many_Any(n, table.entry_type, true,, table.allocator);
+    
     for :iterate_table_entries new_entries {
         it_hash.* = 0;
     }
