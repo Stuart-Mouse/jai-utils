@@ -5,20 +5,14 @@
     Table operations in a runtime-generic way. This should be helpful for those who want to support Tables in their 
     (de)serialization libraries or in other applications that are doing funky reflection stuff.
     
+    I have removed most of the comments on the code which was copied from Hash_Table.jai and have only included my own comments which are relevant to the changes made here.
     
-    NOTE:
+    IMPORTANT NOTE:
     If there is no given_compare_function for the table, memcmp is used instead of operator == 
         This should not matter for primitive types, but if you are using #poke_name to insert operator == for other types, 
         then compare_keys will not do what you want it to do!
         Since #poke_name is going away anyhow, I see no reason to fix this. Just pass a given_compare_function.
-    
-    
-    TODO: 
-    Try to make sure this is independent of as much of my utils module stuff as possible.
-        Looks like we will be taking a dependency on Many_Any, but maybe that's not dependent on anything else and we can just include that directly as another file for those who don't want to download the utils module.
-    
 */
-
 
 // This struct lines up with any Table, allowing us to access the values of the backing table through the Any_Table.
 Table_Base :: struct {
@@ -262,11 +256,10 @@ table_add :: (table: *Any_Table, key: Any, value: Any) -> Any {
     
     Basic.assert(table.slots_filled < table.allocated);
     
-    entries := get_entries(table);
     Walk_Any_Table(#code {
         if table.refill_removed {
-            hash := entries[index].value_pointer.(*u32).*;
-            if hash == Hash_Table.REMOVED_HASH {
+            _, entry_hash := get_entry(table, index);
+            if entry_hash.* == Hash_Table.REMOVED_HASH {
                 table.slots_filled -= 1;  // 1 will get re-added below, for total increment 0.
                 break;
             }
@@ -297,7 +290,6 @@ table_find :: (table: *Any_Table, key: Any) -> bool, Any {
     
     if !table.allocated  return false, Any.{};
     
-    entries := get_entries(table);
     Walk_Any_Table(#code {
         _, entry_hash, entry_key, entry_value := get_entry(table, index);
         if entry_hash.* == hash {
@@ -319,7 +311,6 @@ table_find_multiple :: (table: *Any_Table, key: Any) -> [] Any {
     results: [..] Any;
     results.allocator = Basic.temporary_allocator;
     
-    entries := get_entries(table);
     Walk_Any_Table(#code {
         _, entry_hash, entry_key, entry_value := get_entry(table, index);
         if entry_hash.* == hash {
@@ -385,7 +376,6 @@ table_remove :: (table: *Any_Table, key: Any) -> bool {
     
     if !table.allocated  return false;
     
-    entries := get_entries(table);
     Walk_Any_Table(#code {
         _, entry_hash, entry_key, entry_value := get_entry(table, index);
         if entry_hash.* == hash && compare_keys(table, entry_key, key) {
@@ -407,7 +397,6 @@ table_remove_multiple :: (table: *Any_Table, key: Any) -> (num_removed: s64) {
     
     orig_count := table.count;
     
-    entries := get_entries(table);
     Walk_Any_Table(#code {
         _, entry_hash, entry_key, entry_value := get_entry(table, index);
         if entry_hash.* == hash && compare_keys(table, entry_key, key) {
@@ -419,7 +408,6 @@ table_remove_multiple :: (table: *Any_Table, key: Any) -> (num_removed: s64) {
     return orig_count - table.count;
 }
 
-
 find_or_add :: (table: *Any_Table, key: Any) -> (entry: Any, newly_added: bool) {
     found, value := table_find(table, key);
     if value return value, false;
@@ -428,16 +416,11 @@ find_or_add :: (table: *Any_Table, key: Any) -> (entry: Any, newly_added: bool) 
     return value, true;
 }
 
-// TODO: do we care to implement the _multiple procs?
-
 #scope_file
 
 Basic :: #import "Basic";
 Hash :: #import "Hash";
 Hash_Table :: #import "Hash_Table";
-
-// TODO: remove dependency as much as possible 
-#import "Utils";
 
 // This is #scope_file in Hash for some reason, so I had to duplicate it here...
 // I assume if this changes and the two get out of sync then things will break, so that's nice.
@@ -447,10 +430,9 @@ Dummy_Table :: Hash_Table.Table(*void, *void);
 
 
 /*
-    NOTE: I am keeping this as close to the original Walk_Any_Table as possible, even though it is kinda weird, tbh.
-    I would probably rather use a named for_expansion for this, but oh well. Maybe I'll do that later if it seems worthwhile.
-    The only major change to the interface here is that we also need `entries` to be defined in the calling scope using get_entries(table)
-    This is because in 90% of situations, the user caller will want to refer to this anyhow, and we don't need to repeat the work required by get_entries()
+    NOTE: I am keeping this as close to the original Walk_Any_Table as possible, even though it is kinda badly designed.
+    I would probably rather use a named for_expansion for this, but oh well. 
+    Maybe I'll do that later if it seems worthwhile, but for now it's only used internally, so it doesn't matter.
 */
 Walk_Any_Table :: (code: Code) #expand {
     mask := cast,trunc(u32)(`table.allocated - 1);
@@ -462,13 +444,14 @@ Walk_Any_Table :: (code: Code) #expand {
     
     probe_increment: u32 = 1;
     
+    entries := get_entries(`table);
     while `table_while_loop := true {
-        hash := `entries[index].value_pointer.(*u32).*;
+        hash := entries[index].value_pointer.(*u32).*;
         if hash == 0  break;
         
         #insert code;
         
-        index = (index + probe_increment) & mask;    // Since table.allocated is always power of two, the & wraps our index within the table. (Requires that probe_increment is not big enough to wrap index into negative numbers, which it won't be because it's u32 and index is s64.);
+        index = (index + probe_increment) & mask;
         probe_increment += 1;
     }
 }

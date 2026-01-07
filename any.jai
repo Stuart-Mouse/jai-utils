@@ -298,19 +298,20 @@ negate_number :: inline (any: *Any_Number) -> bool {
     return false;
 }
 
-// TODO: maybe add pointer, could do so with #overlay to keep Any_Number returnable from #run's
-Number_Union :: union {
-    as_u\8:     u\8;
-    as_u16:     u16;
-    as_u32:     u32;
-    as_u64:     u64;
-    as_s\8:     s\8;
-    as_s16:     s16;
-    as_s32:     s32;
-    as_s64:     s64;
-    as_float32: float32;
-    as_float64: float64;
+Number_Union :: struct {
     as_bytes:   [8] u8;
+    
+    #overlay(as_bytes) as_u\8:     u\8;
+    #overlay(as_bytes) as_u16:     u16;
+    #overlay(as_bytes) as_u32:     u32;
+    #overlay(as_bytes) as_u64:     u64;
+    #overlay(as_bytes) as_s\8:     s\8;
+    #overlay(as_bytes) as_s16:     s16;
+    #overlay(as_bytes) as_s32:     s32;
+    #overlay(as_bytes) as_s64:     s64;
+    #overlay(as_bytes) as_float32: float32;
+    #overlay(as_bytes) as_float64: float64;
+    #overlay(as_bytes) as_pointer: *void;
     
     from :: to_number_union;
 }
@@ -400,7 +401,7 @@ get_element_index :: (array: Any_Array, element_pointer: *void) -> int {
     return index;
 }
 
-resize :: (array: Any_Array, new_count: int, $initialize := false) {
+resize :: (array: Any_Array, new_count: int, $$initialize := false) {
     assert(array.array_type != .FIXED);
     
     old_count: int;
@@ -425,7 +426,7 @@ resize :: (array: Any_Array, new_count: int, $initialize := false) {
         raw_array.count = new_count;
     }
     
-    #if initialize  init_range(array, old_count, new_count - old_count);
+    if initialize  init_range(array, old_count, new_count - old_count);
 }
 
 // TODO: maybe init_range should just use our dynamic array_view and then call initialize_any for each element
@@ -470,10 +471,23 @@ array_view :: (array: Any_Array, index: int, count := S64_MAX) -> Many_Any {
     return result;
 }
 
+
 /*
-    The Many_Any is sort of a combination of an Any and an Array_View_64.
+    Many_Any is sort of a combination of an Any and an Array_View_64.
     Using this removes the need for 2 levels of indirection to the underlying array data.
+    We also provide some nice operator overloads, a for_expansion, and some useful procedures for handling allocations.
+    
+    For most reflection-related purposes, the Any_Array (also included in my Utils module) is probably a better choice.
+    With the Many_any, we aren't referencing any underlying array data type (e.g. [4] int, [] int, [..] int) like we are with an Any_Array.
+    Instead, the Many_Any is just a view onto the array data that any of these structures would point at.
+    This gives us the freedom to slice the Many_Any in a way we can't really do with the Any_Array.
+    (You may notice that calling array_view on an Any_Array actually produces a Many_Any.)
+    
+    In essence, the Many_Any is the the Any_Array what the array view is to a fixed or resizable array.
+    You will find it most useful in situations where you need to modify only the elements, or consider sub-views of some larger array of unknown type.
+    For an example of its use, you can see Any_Hash_Table.jai, where it is used to handle the Any_Table's `entries` array.
 */
+
 Many_Any :: struct {
     using element_type: *Type_Info; // element type info
     using array_view:   Array_View_64;
@@ -482,7 +496,7 @@ Many_Any :: struct {
 }
 
 make_many_any :: (any: Any) -> Many_Any {
-    assert(!(any.type.type == .ARRAY && any.type.(*Type_Info_Array).array_type == .VIEW), "A Many_Any can only be made from an array view. Got type '%'.", as_type(any.type));
+    assert(!(any.type.type == .ARRAY && any.type.(*Type_Info_Array).array_type == .VIEW), "A Many_Any can only be made from an array view. Got type '%'.", (*any.type).(*Type).*);
     raw_array := any.value_pointer.(*Array_View_64).*;
     return .{ xx any.type, raw_array };
 }
@@ -501,7 +515,7 @@ for_expansion :: (view: Many_Any, body: Code, for_flags: For_Flags) #expand {
 
 get_index :: inline (view: Many_Any, index: int) -> Any, bool {
     if index < 0 || index >= view.count {
-        return NULL_ANY, false;
+        return Any.{}, false;
     }
     return Any.{ view.element_type, view.data + (index * view.element_type.runtime_size) }, true;
 }
@@ -512,7 +526,7 @@ set_index :: inline (view: Many_Any, index: int, value: Any) {
     assert(index > 0 && index < view.count, "Array index % is out of bounds. count = %", index, view.count);
     
     element := Any.{ view.element_type, view.data + (index * view.element_type.runtime_size) };
-    memcpy_any(element, value);
+    memcpy(element.value_pointer, value.value_pointer, element.type.runtime_size);
 }
 operator []= :: set_index;
 
@@ -546,6 +560,19 @@ New_Many_Any :: (count: int, type: *Type_Info, $$initialize := true) -> Many_Any
     return view;
 }
 
+resize :: (view: Many_Any, new_count: int, $$initialize := false) {
+    old_count := view.count;
+    if old_count < new_count {
+        view.data = realloc(view.data,
+            new_count * view.element_type.runtime_size, 
+            old_count * view.element_type.runtime_size
+        );
+    }
+    view.count = new_count;
+    
+    if initialize  init_range(view, old_count, new_count - old_count);
+}
+
 // TODO: deduplicate with Any_Array's init_range, just pass required info for both to work
 //       maybe also do the same for array_view, idk
 init_range :: (view: Many_Any, begin: s64, count: s64) {
@@ -565,9 +592,6 @@ init_range :: (view: Many_Any, begin: s64, count: s64) {
     
     memset(view.data + begin * view.element_type.runtime_size, 0, count * view.element_type.runtime_size );
 }
-
-// TODO: many_any resize/realloc
-
 
 // Any_Poly :: struct(T: Type) #modify {
 //     struct_info := T.(*Type_Info);
