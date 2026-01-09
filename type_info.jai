@@ -17,7 +17,7 @@ is_union_type :: (ti: *Type_Info) -> bool {
 
 is_tagged_union_type :: inline (T: Type) -> bool { return is_tagged_union_type(T.(*Type_Info)); }
 is_tagged_union_type :: (ti: *Type_Info) -> bool {
-    return ti.type == .STRUCT && (ti.(*Type_Info_Struct).textual_flags & (.UNION | UNION_IS_TAGGED) == (.UNION | UNION_IS_TAGGED));
+    return ti.type == .STRUCT && (ti.(*Type_Info_Struct).textual_flags & (.UNION | .UNION_IS_TAGGED) == (.UNION | .UNION_IS_TAGGED));
 }
 
 is_aggregate :: inline (T: Type) -> bool { return is_aggregate(T.(*Type_Info)); }
@@ -129,47 +129,116 @@ are_structs_equivalent :: (ti1: *Type_Info_Struct, ti2: *Type_Info_Struct) -> bo
 
 union_contains_type :: (union_info: *Type_Info_Struct, type: *Type_Info) -> bool {
     assert(is_union_type(union_info));
-    for union_info.members 
-        if it.type == type
-            return true;
+    
+    // If it is a tagged union, skip the first member (as this will be the tag)
+    members := union_info.members;
+    if is_tagged_union_type(union_info) {
+        members.data  += 1;
+        members.count -= 1; 
+    }
+    
+    for members  if it.type == type  return true;
     return false;
 }
 
-get_union_kind_type :: (union_info: *Type_Info_Struct) -> *Type_Info {
-    assert(is_tagged_union_type(union_info), "any_union was not a tagged union type!");
-    assert(union_info.members[0].name == "kind", "tagged union did not contain 'kind' as its first member!"); // I assume this is always the case. If this is not true then we will need to search through the members to find kind.
+get_union_tag_type :: (union_info: *Type_Info_Struct) -> *Type_Info {
+    assert(is_tagged_union_type(union_info), "union_info did not refer to a tagged union type!");
     return union_info.members[0].type;
 }
 
-get_union_kind :: (any_union: Any) -> Any {
+get_union_tag :: (any_union: Any) -> Any {
     assert(is_tagged_union_type(any_union.type), "any_union was not a tagged union type!");
-    
     union_info := any_union.type.(*Type_Info_Struct);
-    assert(union_info.members[0].name == "kind", "tagged union did not contain 'kind' as its first member!"); // I assume this is always the case. If this is not true then we will need to search through the members to find kind.
-    union_kind_member_info := *union_info.members[0];
-    
-    return Any.{ union_kind_member_info.type, any_union.value_pointer + union_kind_member_info.offset_in_bytes };
+    union_tag_member_info := *union_info.members[0];
+    return Any.{ union_tag_member_info.type, any_union.value_pointer + union_tag_member_info.offset_in_bytes };
 }
 
-get_valid_union_member :: (any_union: Any) -> Any {
-    kind := get_union_kind(any_union); // will assert that any_union is actually a tagged union
-    if kind.type.type == {
+// NOTE: If the union is using a Type as tag, then the Any returned may be null!
+get_valid_union_member :: (any_union: Any) -> Any, *Type_Info_Struct_Member {
+    union_info := any_union.type.(*Type_Info_Struct);
+    valid_member_info: *Type_Info_Struct_Member;
+    
+    tag := get_union_tag(any_union); // will assert that any_union is actually a tagged union
+    if tag.type.type == {
       case .INTEGER;
-        // TODO
-        assert(false, "union with kind: Type is not yet supported");
+        // NOTE: I am ignoring signedness here since the tag should presumably never have a negative value.
+        kind_as_u64: u64;
+        if tag.type.runtime_size == {
+          case 1; kind_as_u64 = xx,no_check tag.value_pointer.(*u\8).*;
+          case 2; kind_as_u64 = xx,no_check tag.value_pointer.(*u16).*;
+          case 4; kind_as_u64 = xx,no_check tag.value_pointer.(*u32).*;
+          case 8; kind_as_u64 = xx,no_check tag.value_pointer.(*u64).*;
+        }
+        valid_member_info = *union_info.members[kind_as_u64];
         
       case .ENUM;
-        // NOTE: I am assuming here that negative values are not premitted in a union kine enum. Need to check this.
-        // Also, we will hoppefully have better ability to map enum values to union members in the future, which will require new logic here...
-        // kind_as_u64: u64;
-        // if 
-        // valid_member_info := union_info.members[kind_as_u64];
+        // NOTE: We will hopefully have better ability to map enum values to union members in the future, which will require new logic here...
+        // NOTE: I am ignoring signedness here since the tag should presumably never have a negative value.
+        kind_as_u64: u64;
+        if tag.type.runtime_size == {
+          case 1; kind_as_u64 = xx,no_check tag.value_pointer.(*u\8).*;
+          case 2; kind_as_u64 = xx,no_check tag.value_pointer.(*u16).*;
+          case 4; kind_as_u64 = xx,no_check tag.value_pointer.(*u32).*;
+          case 8; kind_as_u64 = xx,no_check tag.value_pointer.(*u64).*;
+        }
+        valid_member_info = *union_info.members[kind_as_u64];
         
       case .TYPE;
-        // TODO
-        assert(false, "union with kind: Type is not yet supported");
+        valid_type  := tag.value_pointer.(**Type_Info).*;
+        struct_info := any_union.type.(*Type_Info_Struct);
+        for *struct_info.members {
+            if it.type == valid_type {
+                valid_member_info = it;
+                break;
+            }
+        }
+        
+      case;
+        assert(false, "Invalid union tag type: %", tag.type.type);
     }
     
-    assert(false, "invalid union kind: %", kind.type.type);
-    return .{};
+    // NOTE: only possible if union is using a Type tag
+    if valid_member_info == null  return Any.{}, null;
+    
+    // TODO: Should it ever be constant? Need to check how Jai currently handles this situation.
+    assert(valid_member_info.flags & .CONSTANT == 0);
+    return Any.{ valid_member_info.type, any_union.value_pointer + valid_member_info.offset_in_bytes }, valid_member_info;
+}
+
+// NOTE: The semantics here are maybe a bit odd if the tag is not a Type.
+//       We will just set the tag based on the index of the first member with a matching type.
+set_union_from_any :: (any_union: Any, value: Any) -> bool {
+    union_info := any_union.type.(*Type_Info_Struct);
+    assert(is_union_type(union_info));
+    
+    is_tagged := is_tagged_union_type(union_info);
+    
+    members := union_info.members;
+    if is_tagged {
+        members.data  += 1;
+        members.count -= 1; 
+    }
+    
+    for *union_info.members {
+        if it.type == value.type {
+            member := Any.{ it.type, any_union.value_pointer + it.offset_in_bytes };
+            memcpy_any(member, value);
+            
+            if is_tagged {
+                tag := get_union_tag(any_union);
+                if tag.type.type == {
+                  case .TYPE;
+                    memcpy_any(tag, member.type);
+                    
+                  case .INTEGER;
+                  case .ENUM;
+                    // NOTE: not exactly a typesafe operation here, but should be correct assuming no negative tags.
+                    memcpy(tag.value_pointer, *it_index, tag.type.runtime_size);
+                }
+            }
+            
+            return true;
+        }
+    }
+    return false;
 }

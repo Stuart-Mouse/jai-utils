@@ -383,6 +383,7 @@ for_expansion :: (array: Any_Array, body: Code, for_flags: For_Flags) #expand {
     while it_index < count {
         defer {
             it.value_pointer += array.element_type.runtime_size;
+            it_index += 1;
         }
         #insert body;
     }
@@ -457,7 +458,7 @@ array_view :: (array: Any_Array, index: int, count := S64_MAX) -> Many_Any {
     assert(count >= 0, "count = %", count);
     
     result: Many_Any = ---;
-    result.info = array.element_type;
+    result.element_type = array.element_type;
     
     if index >= array_count {
         return result;

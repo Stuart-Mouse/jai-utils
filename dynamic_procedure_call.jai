@@ -256,8 +256,6 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
         
         root.(*Code_Cast).target_type.* = .{ type_valued_expression = type_expression };
         
-        // log("argument inserter: %", sprintx(root));
-        
         return root;
     }
     
