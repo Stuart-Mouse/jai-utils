@@ -346,6 +346,16 @@ make_any_array :: (any: Any) -> Any_Array {
     return .{ xx any.type, any.value_pointer };
 }
 
+// NOTE: basically duplicated from Reflection module
+get_array_count_and_data :: inline (value_pointer: *void, array_info: *Type_Info_Array) -> (int, *void) {
+    if array_info.array_type == .FIXED {
+        return array_info.array_count, value_pointer;
+    } else {
+        raw_array := value_pointer.(*Resizable_Array);
+        return raw_array.count, raw_array.data;
+    }
+}
+
 get_count_and_data :: inline (array: Any_Array) -> (int, *void) {
     if array.array_type == .FIXED {
         return array.array_count, array.value_pointer;
