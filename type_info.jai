@@ -1,28 +1,35 @@
 
 // ========== General Purpose ==========
 
+// TODO: need to make all these procs that check if we are certain type of type use get_variant_base_type
+
 as_type :: inline (ti: *Type_Info) -> Type { return (*ti).(*Type).*; }
 
 is_numeric_type :: inline (T: Type) -> bool { return is_numeric_type(T.(*Type_Info)); }
-is_numeric_type :: inline (ti: *Type_Info) -> bool {
-    if ti == null  return false;
-    while ti.type == .VARIANT  ti = ti.(*Type_Info_Variant).variant_of;
-    return ti.type == .INTEGER || ti.type == .FLOAT || ti.type == .ENUM;
+is_numeric_type :: inline (type: *Type_Info) -> bool {
+    if type == null  return false; // TODO: check if anything depends on this, then remove
+    
+    type = get_variant_base_type(type);
+    while type.type == .VARIANT  type = type.(*Type_Info_Variant).variant_of;
+    return type.type == .INTEGER || type.type == .FLOAT || type.type == .ENUM;
 }
 
 is_union_type :: inline (T: Type) -> bool { return is_union_type(T.(*Type_Info)); }
-is_union_type :: (ti: *Type_Info) -> bool {
-    return ti.type == .STRUCT && (ti.(*Type_Info_Struct).textual_flags & .UNION);
+is_union_type :: (type: *Type_Info) -> bool {
+    type = get_variant_base_type(type);
+    return type.type == .STRUCT && (type.(*Type_Info_Struct).textual_flags & .UNION);
 }
 
 is_tagged_union_type :: inline (T: Type) -> bool { return is_tagged_union_type(T.(*Type_Info)); }
-is_tagged_union_type :: (ti: *Type_Info) -> bool {
-    return ti.type == .STRUCT && (ti.(*Type_Info_Struct).textual_flags & (.UNION | .UNION_IS_TAGGED) == (.UNION | .UNION_IS_TAGGED));
+is_tagged_union_type :: (type: *Type_Info) -> bool {
+    type = get_variant_base_type(type);
+    return type.type == .STRUCT && (type.(*Type_Info_Struct).textual_flags & (.UNION | .UNION_IS_TAGGED) == (.UNION | .UNION_IS_TAGGED));
 }
 
 is_aggregate :: inline (T: Type) -> bool { return is_aggregate(T.(*Type_Info)); }
-is_aggregate :: inline (ti: *Type_Info) -> bool {
-    if ti.type == {
+is_aggregate :: inline (type: *Type_Info) -> bool {
+    type = get_variant_base_type(type);
+    if type.type == {
         case .INTEGER;   return false;
         case .FLOAT;     return false;
         case .ENUM;      return false;
@@ -35,73 +42,85 @@ is_aggregate :: inline (ti: *Type_Info) -> bool {
 }
 
 is_enum_flags :: inline (T: Type) -> bool { return is_enum_flags(T.(*Type_Info)); }
-is_enum_flags :: inline (ti: *Type_Info) -> bool {
-    return ti && ti.type == .ENUM && ti.(*Type_Info_Enum).enum_type_flags & .FLAGS == .FLAGS;
+is_enum_flags :: inline (type: *Type_Info) -> bool {
+    type = get_variant_base_type(type);
+    return type && type.type == .ENUM && type.(*Type_Info_Enum).enum_type_flags & .FLAGS == .FLAGS;
 }
 
 is_pointer_to :: inline (type: *Type_Info, target: *Type_Info) -> bool {
+    type = get_variant_base_type(type);
     return type != null && type.type == .POINTER && type.(*Type_Info_Pointer).pointer_to == target;
 }
 
 get_variant_base_type :: inline (T: Type) -> Type { return as_type(get_variant_base_type(T.(*Type_Info))); }
-get_variant_base_type :: inline (ti: *Type_Info) -> *Type_Info {
-    while ti.type == .VARIANT  ti = ti.(*Type_Info_Variant).variant_of;
-    return ti;
+get_variant_base_type :: inline (type: *Type_Info) -> *Type_Info {
+    while type.type == .VARIANT  type = type.(*Type_Info_Variant).variant_of;
+    return type;
 }
 
 
 // two types are considered equivalent if we can memcpy between the two types validly.
-are_types_equivalent :: (ti1: *Type_Info, ti2: *Type_Info) -> bool {
-    if ti1.type != ti2.type  return false;
-    if ti1.runtime_size != ti2.runtime_size  return false;
-    if ti1.type == {
+are_types_equivalent :: (t1: *Type_Info, t2: *Type_Info) -> bool {
+    t1 := get_variant_base_type(t1);
+    t2 := get_variant_base_type(t2);
+    
+    if t1.type         != t2.type          return false;
+    if t1.runtime_size != t2.runtime_size  return false;
+    
+    if t1.type == {
       case .STRUCT;
-        return are_structs_equivalent(xx ti1, xx ti2);
+        return are_structs_equivalent(xx t1, xx t2);
         
       case .ARRAY;
-        ti1_array := ti1.(*Type_Info_Array);
-        ti2_array := ti2.(*Type_Info_Array);
-        return ti1_array.array_type == ti2_array.array_type && are_types_equivalent(ti1_array.element_type, ti2_array.element_type);
+        t1_array := t1.(*Type_Info_Array);
+        t2_array := t2.(*Type_Info_Array);
+        return t1_array.array_type == t2_array.array_type && are_types_equivalent(t1_array.element_type, t2_array.element_type);
         
       case .ENUM;
         // on what criteria are two enums equivalent?
         // based only on internal type?
         // would we want to do a more structural check here?
-        ti1_enum := ti1.(*Type_Info_Enum);
-        ti2_enum := ti2.(*Type_Info_Enum);
+        t1_enum := t1.(*Type_Info_Enum);
+        t2_enum := t2.(*Type_Info_Enum);
         return ti1_enum.internal_type.signed == ti2_enum.internal_type.signed; 
         
       case .INTEGER;
-        ti1_integer := ti1.(*Type_Info_Integer);
-        ti2_integer := ti2.(*Type_Info_Integer);
-        return ti1_integer.signed == ti2_integer.signed; 
+        t1_integer := t1.(*Type_Info_Integer);
+        t2_integer := t2.(*Type_Info_Integer);
+        return t1_integer.signed == t2_integer.signed; 
         
       case .FLOAT;
         // we already checked that runtime size matches
         return true; 
     }
+    
+    // TODO: should we make this unreachable?
+    return false;
 }
 
 // ========== Enums ==========
 
-enum_name_to_value :: (ti: *Type_Info_Enum, name: string) -> s64, bool {
-    assert(ti.type == .ENUM);
-    for ti.names  if name == it  return ti.values[it_index], true;
+enum_name_to_value :: (enum_info: *Type_Info_Enum, name: string) -> s64, bool {
+    assert(enum_info.type == .ENUM);
+    for enum_info.names  if name == it  return enum_info.values[it_index], true;
     return 0, false;
 }
 
-enum_value_to_name :: (ti: *Type_Info_Enum, value: s64) -> string {
-    assert(ti.type == .ENUM);
-    for ti.values  if value == it  return ti.names[it_index];
+enum_value_to_name :: (enum_info: *Type_Info_Enum, value: s64) -> string {
+    assert(enum_info.type == .ENUM);
+    // assert(enum_info.enum_type_flags & .FLAGS == 0);
+    for enum_info.values  if value == it  return enum_info.names[it_index];
     return "";
 }
 
-enum_valid_range :: inline (t: Type) -> (min: int, max: int) {
-    ti := t.(*Type_Info_Enum);
-    assert(ti.type == .ENUM);
+get_enum_valid_range :: (type: Type) -> (min: int, max: int) {
+    enum_info := type.(*Type_Info_Enum);
+    assert(enum_info.type == .ENUM);
+    assert(enum_info.enum_type_flags & .FLAGS == 0);
+    
     min := S64_MAX;
     max := S64_MIN;
-    for ti.values {
+    for enum_info.values {
         if it < min  min = it;
         if it > max  max = it;
     }
@@ -169,7 +188,7 @@ get_valid_union_member :: (any_union: Any) -> Any, *Type_Info_Struct_Member {
           case 4; kind_as_u64 = xx,no_check tag.value_pointer.(*u32).*;
           case 8; kind_as_u64 = xx,no_check tag.value_pointer.(*u64).*;
         }
-        valid_member_info = *union_info.members[kind_as_u64];
+        valid_member_info = *union_info.members[kind_as_u64+1];
         
       case .ENUM;
         // NOTE: We will hopefully have better ability to map enum values to union members in the future, which will require new logic here...
@@ -181,7 +200,7 @@ get_valid_union_member :: (any_union: Any) -> Any, *Type_Info_Struct_Member {
           case 4; kind_as_u64 = xx,no_check tag.value_pointer.(*u32).*;
           case 8; kind_as_u64 = xx,no_check tag.value_pointer.(*u64).*;
         }
-        valid_member_info = *union_info.members[kind_as_u64];
+        valid_member_info = *union_info.members[kind_as_u64+1];
         
       case .TYPE;
         valid_type  := tag.value_pointer.(**Type_Info).*;

@@ -71,26 +71,72 @@ initialize_any :: (any: Any) {
     }
 }
 
-// ========== Reflection ==========
+// ========== Structs ==========
 
-get_member :: (any_struct: Any, member_name: string) -> bool, Any, *Type_Info_Struct_Member {
-    struct_info := any_struct.type.(*Type_Info_Struct);
-    assert(struct_info.type == .STRUCT);
+// NOTE: the name Any_Struct is already taken by preload, so...
+Any_Structure :: struct {
+    using struct_info:  *Type_Info_Struct;
+    value_pointer:      *void;
     
-    member_info, member_offset := get_field(struct_info, member_name);
-    if member_info {
-        if member_info.flags & .CONSTANT {
-            return true, Any.{ member_info.type, struct_info.constant_storage.data + member_info.offset_into_constant_storage }, member_info;
+    from :: make_any_structure;
+}
+
+make_any_structure :: (any: Any) -> Any_Structure {
+    assert(any.type.type == .STRUCT, "Cannot make an Any_Structure from type '%'.", as_type(any.type));
+    return .{ xx any.type, any.value_pointer };
+}
+
+// TODO: probably should report if true: get_field in modules/Basic probably causes a crash for constant members
+
+// NOTE: `member_offset` is returned in case we retrieved a member through a using.
+//       If the returned member is a constant, member_offset will always be returned as -1.
+get_member :: (any_struct: Any_Structure, name: string, recursive := false) -> (
+    found:          bool, 
+    member_any:     Any, 
+    member_info:    *Type_Info_Struct_Member, 
+    member_offset:  int
+) {
+    member_info:    *Type_Info_Struct_Member;
+    member_offset:  int;
+    
+    for *any_struct.members {
+        if it.name == name {
+            member_info   = it;
+            member_offset = it.offset_in_bytes;
+            break;
         }
-        return true, Any.{ member_info.type, any_struct.value_pointer + member_info.offset_in_bytes }, member_info;
     }
-    return false, NULL_ANY, null;
+    
+    // TODO: is it possible to have a using on a constant member?
+    if member_info == null && recursive {
+        for *any_struct.members {
+            // NOTE: redundant condition here?
+            if (it.flags & .USING) && (it.type.type == .STRUCT) {
+                result, member_any, member_info, member_offset := get_member(Any_Structure.{ xx it.type, any_struct.value_pointer + it.offset_in_bytes }, name);
+                if result then return result, member_any, member_info, member_offset;
+            }
+        }
+    }
+    
+    if member_info == null {
+        return false, NULL_ANY, null, 0;
+    }
+    if member_info.flags & .CONSTANT {
+        return true, Any.{ member_info.type, any_struct.constant_storage.data + member_info.offset_into_constant_storage }, member_info, -1;
+    }
+    return true, Any.{ member_info.type, any_struct.value_pointer + member_offset }, member_info, member_offset;
+}
+
+// TODO: make recursive not be true by default
+get_struct_member :: (any: Any, name: string, recursive := true) -> bool, Any, *Type_Info_Struct_Member, int {
+    found, member_any, member_info, member_offset := get_member(Any_Structure.from(any), name, recursive);
+    return found, member_any, member_info, member_offset;
 }
 
 // NOTE: this version will only accept members that are directly on the given struct, not fields that were retrieved through a using.
-get_member :: (any_struct: Any, member_info: *Type_Info_Struct_Member) -> member_any: Any {
-    assert(any_struct.type.type == .STRUCT, "was %", as_type(any_struct.type));
-    struct_info := any_struct.type.(*Type_Info_Struct);
+get_struct_member :: (any: Any, member_info: *Type_Info_Struct_Member) -> member_any: Any {
+    assert(any.type.type == .STRUCT, "was %", as_type(any.type));
+    struct_info := any.type.(*Type_Info_Struct);
     
     // verify that the member belongs to this struct
     assert(is_within_array(struct_info.members, member_info));
@@ -98,25 +144,25 @@ get_member :: (any_struct: Any, member_info: *Type_Info_Struct_Member) -> member
     if member_info.flags & .CONSTANT {
         return Any.{ member_info.type, struct_info.constant_storage.data + member_info.offset_into_constant_storage };
     }
-    return Any.{ member_info.type, any_struct.value_pointer + member_info.offset_in_bytes };
+    return Any.{ member_info.type, any.value_pointer + member_info.offset_in_bytes };
 }
 
-// get_specified_parameter :: (any_struct: Any, member_name: string) -> bool, Any, *Type_Info_Struct_Member {
-//     struct_info := any_struct.type.(*Type_Info_Struct);
-//     assert(struct_info.type == .STRUCT);
+get_specified_parameter :: (any_struct: Any, member_name: string) -> bool, Any, *Type_Info_Struct_Member {
+    struct_info := any_struct.type.(*Type_Info_Struct);
+    assert(struct_info.type == .STRUCT);
     
-//     member_info, member_offset := get_field(struct_info, member_name);
-//     for struct_info.specified_parameters
+    member_info, member_offset := get_field(struct_info, member_name);
+    for struct_info.specified_parameters
     
     
-//     if member_info {
-//         if member_info.flags & .CONSTANT {
-//             return true, Any.{ member_info.type, struct_info.constant_storage.data + member_info.offset_into_constant_storage }, member_info;
-//         }
-//         return true, Any.{ member_info.type, any_struct.value_pointer + member_info.offset_in_bytes }, member_info;
-//     }
-//     return false, NULL_ANY, null;
-// } 
+    if member_info {
+        if member_info.flags & .CONSTANT {
+            return true, Any.{ member_info.type, struct_info.constant_storage.data + member_info.offset_into_constant_storage }, member_info;
+        }
+        return true, Any.{ member_info.type, any_struct.value_pointer + member_info.offset_in_bytes }, member_info;
+    }
+    return false, NULL_ANY, null;
+} 
 
 
 Struct_Member_Iterator_Flags :: enum_flags {
@@ -152,6 +198,7 @@ iterate_struct_members :: (any: Any, $flags: Struct_Member_Iterator_Flags, body:
     }
 }
 
+// TODO: this is sort of dumb. should probably be removed or should return base type
 unwrap_variant_type :: (any: Any) -> Any, bool {
     if any.type.type == .VARIANT {
         return Any.{
