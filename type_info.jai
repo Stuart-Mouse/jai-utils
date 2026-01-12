@@ -274,7 +274,7 @@ set_union_from_any :: (any_union: Any, value: Any) -> bool {
         members.count -= 1; 
     }
     
-    for *union_info.members {
+    for *members {
         if it.type == value.type {
             member := Any.{ it.type, any_union.value_pointer + it.offset_in_bytes };
             memcpy_any(member, value);
@@ -317,3 +317,32 @@ make_fixed_array_type_info :: (count: int, element_type: *Type_Info) -> Type_Inf
         array_count  = count,
     };
 }
+
+make_array_view_type_info :: (element_type: *Type_Info) -> Type_Info_Array {
+    return .{
+        type         = .ARRAY,
+        runtime_size = count * element_type.runtime_size,
+        element_type = size_of(Array_View_64),
+        array_type   = .VIEW,
+        array_count  = -1,
+    };
+}
+
+make_resizable_array_type_info :: (element_type: *Type_Info) -> Type_Info_Array {
+    return .{
+        type         = .ARRAY,
+        runtime_size = size_of(Resizable_Array),
+        element_type = element_type,
+        array_type   = .RESIZABLE,
+        array_count  = -1,
+    };
+}
+
+make_pointer_type_info :: (pointer_to: *Type_Info) -> Type_Info_Pointer {
+    return .{
+        type         = .POINTER,
+        runtime_size = size_of(*void),
+        pointer_to   = pointer_to,
+    };
+}
+
