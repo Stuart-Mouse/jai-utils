@@ -127,8 +127,7 @@ get_member :: (any_struct: Any_Structure, name: string, recursive := false) -> (
     return true, Any.{ member_info.type, any_struct.value_pointer + member_offset }, member_info, member_offset;
 }
 
-// TODO: make recursive not be true by default
-get_struct_member :: (any: Any, name: string, recursive := true) -> bool, Any, *Type_Info_Struct_Member, int {
+get_struct_member :: (any: Any, name: string, recursive := false) -> bool, Any, *Type_Info_Struct_Member, int {
     found, member_any, member_info, member_offset := get_member(Any_Structure.from(any), name, recursive);
     return found, member_any, member_info, member_offset;
 }

@@ -59,17 +59,48 @@ get_variant_base_type :: inline (type: *Type_Info) -> *Type_Info {
 }
 
 
-// two types are considered equivalent if we can memcpy between the two types validly.
-are_types_equivalent :: (t1: *Type_Info, t2: *Type_Info) -> bool {
+// Two types are considered equivalent if we can memcpy between the two types validly.
+Type_Comparison_Flags :: enum_flags {
+    COMPARE_VARIANTS;
+    COMPARE_STRUCTS;
+    COMPARE_PROCEDURES;     // TODO
+    COMPARE_ENUMS;          // TODO
+}
+
+DEFAULT_TYPE_COMPARISON_FLAGS :: Type_Comparison_Flags.COMPARE_VARIANTS;
+
+are_types_equivalent :: (t1: *Type_Info, t2: *Type_Info, flags := DEFAULT_TYPE_COMPARISON_FLAGS) -> bool {
+    if t1 == t2  return true;
+    
     t1 := get_variant_base_type(t1);
     t2 := get_variant_base_type(t2);
+    if t1 == t2  return true;
     
     if t1.type         != t2.type          return false;
     if t1.runtime_size != t2.runtime_size  return false;
     
-    if t1.type == {
+    if #complete t1.type == {
+      case .UNTYPED_LITERAL;        #through;
+      case .UNTYPED_ENUM;           #through;
+      case .OVERLOAD_SET;           #through;
+      case .POLYMORPHIC_VARIABLE;   #through;
+      case .VARIANT;
+        unreachable();
+        
+      case .CODE;   #through;
+      case .BOOL;   #through;
+      case .TYPE;   #through;
+      case .STRING; #through;
+      case .ANY;    #through;
+      case .VOID;
+        return true;
+        
+      case .PROCEDURE;
+        // TODO: check type signature?
+        return false;
+        
       case .STRUCT;
-        return are_structs_equivalent(xx t1, xx t2);
+        return compare_structs && are_structs_equivalent(xx t1, xx t2);
         
       case .ARRAY;
         t1_array := t1.(*Type_Info_Array);
@@ -77,12 +108,13 @@ are_types_equivalent :: (t1: *Type_Info, t2: *Type_Info) -> bool {
         return t1_array.array_type == t2_array.array_type && are_types_equivalent(t1_array.element_type, t2_array.element_type);
         
       case .ENUM;
-        // on what criteria are two enums equivalent?
+        // TODO: on what criteria are two enums equivalent?
         // based only on internal type?
         // would we want to do a more structural check here?
-        t1_enum := t1.(*Type_Info_Enum);
-        t2_enum := t2.(*Type_Info_Enum);
-        return ti1_enum.internal_type.signed == ti2_enum.internal_type.signed; 
+        // t1_enum := t1.(*Type_Info_Enum);
+        // t2_enum := t2.(*Type_Info_Enum);
+        // return ti1_enum.internal_type.signed == ti2_enum.internal_type.signed; 
+        return false;
         
       case .INTEGER;
         t1_integer := t1.(*Type_Info_Integer);
@@ -92,9 +124,13 @@ are_types_equivalent :: (t1: *Type_Info, t2: *Type_Info) -> bool {
       case .FLOAT;
         // we already checked that runtime size matches
         return true; 
+        
+      case .POINTER;
+        t1_pointer := t1.(*Type_Info_Pointer);
+        t2_pointer := t2.(*Type_Info_Pointer);
+        return are_types_equivalent(t1_pointer.pointer_to, t2_pointer.pointer_to);
     }
     
-    // TODO: should we make this unreachable?
     return false;
 }
 
@@ -260,4 +296,24 @@ set_union_from_any :: (any_union: Any, value: Any) -> bool {
         }
     }
     return false;
+}
+
+
+// ========== Creating Type Infos ==========
+
+/*
+    If you decide to throw temperance to the wayside and do some really crazy stuff, 
+    maybe you'll find yourself in the business of creating new type infos at runtime.
+    
+    In that case, here's a few helpful functions.
+*/
+
+make_fixed_array_type_info :: (count: int, element_type: *Type_Info) -> Type_Info_Array {
+    return .{
+        type         = .ARRAY,
+        runtime_size = count * element_type.runtime_size,
+        element_type = element_type,
+        array_type   = .FIXED,
+        array_count  = count,
+    };
 }
