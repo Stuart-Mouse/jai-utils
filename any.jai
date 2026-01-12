@@ -146,22 +146,14 @@ get_struct_member :: (any: Any, member_info: *Type_Info_Struct_Member) -> member
     return Any.{ member_info.type, any.value_pointer + member_info.offset_in_bytes };
 }
 
-get_specified_parameter :: (any_struct: Any, member_name: string) -> bool, Any, *Type_Info_Struct_Member {
-    struct_info := any_struct.type.(*Type_Info_Struct);
-    assert(struct_info.type == .STRUCT);
-    
-    member_info, member_offset := get_field(struct_info, member_name);
-    for struct_info.specified_parameters
-    
-    
-    if member_info {
-        if member_info.flags & .CONSTANT {
-            return true, Any.{ member_info.type, struct_info.constant_storage.data + member_info.offset_into_constant_storage }, member_info;
+get_specified_parameter :: (any_struct: Any_Structure, name: string) -> bool, Any, *Type_Info_Struct_Member {
+    for *any_struct.specified_parameters {
+        if it.name == name {
+            return true, Any.{ it.type, *any_struct.constant_storage[it.offset_in_bytes] }, it;
         }
-        return true, Any.{ member_info.type, any_struct.value_pointer + member_info.offset_in_bytes }, member_info;
     }
     return false, NULL_ANY, null;
-} 
+}
 
 
 Struct_Member_Iterator_Flags :: enum_flags {
