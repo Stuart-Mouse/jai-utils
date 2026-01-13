@@ -78,6 +78,8 @@ Any_Structure :: struct {
     using struct_info:  *Type_Info_Struct;
     value_pointer:      *void;
     
+    #overlay(struct_info) as_any: Any;
+    
     from :: make_any_structure;
 }
 
@@ -153,6 +155,23 @@ get_specified_parameter :: (any_struct: Any_Structure, name: string) -> bool, An
         }
     }
     return false, NULL_ANY, null;
+}
+
+// also provides 'it_info' iterator pointing to Type_Info_Struct_Member
+for_expansion :: (any_struct: Any_Structure, body: Code, flags: For_Flags) #expand {
+    // TODO: it_index here is not very meaningful...
+    for *`it_info, `it_index: any_struct.members {
+        #if flags & .POINTER == 0 {
+            if it_info.flags & .CONSTANT  continue;
+        }
+        #if flags & .REVERSE == 0 {
+            if it_info.flags & .OVERLAY  continue;
+        }
+        
+        `it := Any.{ it_info.type, any_struct.value_pointer + it_info.offset_in_bytes };
+        
+        #insert body;
+    }
 }
 
 
