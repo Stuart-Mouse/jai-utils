@@ -20,6 +20,46 @@ make_any :: inline (t: *$T) -> Any {
     return Any.{ xx T, t };
 }
 
+memcpy_any :: (dst: Any, src: Any) {
+    assert(dst.type == src.type, "% != %", as_type(dst.type), as_type(src.type));
+    memcpy(dst.value_pointer, src.value_pointer, src.type.runtime_size);
+}
+
+unwrap_any_variant :: (any: Any) -> Any {
+    assert(any.type.type == .VARIANT);
+    return Any.{
+        any.type.(*Type_Info_Variant).variant_of,
+        any.value_pointer
+    };
+}
+
+dereference_any_pointer :: (any: Any) -> Any {
+    assert(any.type.type == .POINTER);
+    return Any.{
+        any.type.(*Type_Info_Pointer).pointer_to,
+        any.value_pointer.(**void).*
+    };
+}
+
+// TODO: Figure out how to make type_type an optional bake. Compiler doesn't like it like that, but I thought I saw some workaround on the discord a while back...
+assert_base_type :: (type: *Type_Info, $type_type: Type_Info_Tag) -> $R #modify {
+    if type_type == {
+      case .VARIANT;    R = *Type_Info_Variant;
+      case .STRUCT;     R = *Type_Info_Struct;
+      case .ARRAY;      R = *Type_Info_Array;
+      case .INTEGER;    R = *Type_Info_Integer;
+      case .FLOAT;      R = *Type_Info_Float;
+      case .PROCEDURE;  R = *Type_Info_Procedure;
+      case .ENUM;       R = *Type_Info_Enum;
+      case .POINTER;    R = *Type_Info_Pointer;
+      case;             R = *Type_Info;
+    }
+    return true;
+} {
+    base_type := get_variant_base_type(type);
+    assert(base_type.type == type_type, "type must be a %, but it was a %", type_type, base_type.type);
+    return xx base_type;
+}
 
 // ========== Allocation ==========
 
@@ -73,22 +113,19 @@ initialize_any :: (any: Any) {
 
 // ========== Structs ==========
 
-// NOTE: the name Any_Struct is already taken by preload, so...
+// NOTE: The name Any_Struct is already taken by Preload.jai, unfortunately.
 Any_Structure :: struct {
     using struct_info:  *Type_Info_Struct;
     value_pointer:      *void;
     
     #overlay(struct_info) as_any: Any;
     
-    from :: make_any_structure;
+    from :: to_any_structure;
 }
 
-make_any_structure :: (any: Any) -> Any_Structure {
-    assert(any.type.type == .STRUCT, "Cannot make an Any_Structure from type '%'.", as_type(any.type));
-    return .{ xx any.type, any.value_pointer };
+to_any_structure :: (any: Any) -> Any_Structure {
+    return .{ assert_base_type(any.type, .STRUCT), any.value_pointer };
 }
-
-// TODO: probably should report if true: get_field in modules/Basic probably causes a crash for constant members
 
 // NOTE: `member_offset` is returned in case we retrieved a member through a using.
 //       If the returned member is a constant, member_offset will always be returned as -1.
@@ -98,34 +135,8 @@ get_member :: (any_struct: Any_Structure, name: string, recursive := false) -> (
     member_info:    *Type_Info_Struct_Member, 
     member_offset:  int
 ) {
-    member_info:    *Type_Info_Struct_Member;
-    member_offset:  int;
-    
-    for *any_struct.members {
-        if it.name == name {
-            member_info   = it;
-            member_offset = it.offset_in_bytes;
-            break;
-        }
-    }
-    
-    // TODO: is it possible to have a using on a constant member?
-    if member_info == null && recursive {
-        for *any_struct.members {
-            // NOTE: redundant condition here?
-            if (it.flags & .USING) && (it.type.type == .STRUCT) {
-                result, member_any, member_info, member_offset := get_member(Any_Structure.{ xx it.type, any_struct.value_pointer + it.offset_in_bytes }, name);
-                if result then return result, member_any, member_info, member_offset;
-            }
-        }
-    }
-    
-    if member_info == null {
-        return false, NULL_ANY, null, 0;
-    }
-    if member_info.flags & .CONSTANT {
-        return true, Any.{ member_info.type, any_struct.constant_storage.data + member_info.offset_into_constant_storage }, member_info, -1;
-    }
+    member_info, member_offset := get_member_info(any_struct.struct_info, name, recursive);
+    if member_info == null  return false, Any.{}, null, 0;
     return true, Any.{ member_info.type, any_struct.value_pointer + member_offset }, member_info, member_offset;
 }
 
@@ -136,8 +147,7 @@ get_struct_member :: (any: Any, name: string, recursive := false) -> bool, Any, 
 
 // NOTE: this version will only accept members that are directly on the given struct, not fields that were retrieved through a using.
 get_struct_member :: (any: Any, member_info: *Type_Info_Struct_Member) -> member_any: Any {
-    assert(any.type.type == .STRUCT, "was %", as_type(any.type));
-    struct_info := any.type.(*Type_Info_Struct);
+    struct_info := assert_base_type(any.type, .STRUCT);
     
     // verify that the member belongs to this struct
     assert(is_within_array(struct_info.members, member_info));
@@ -158,9 +168,9 @@ get_specified_parameter :: (any_struct: Any_Structure, name: string) -> bool, An
 }
 
 // also provides 'it_info' iterator pointing to Type_Info_Struct_Member
-for_expansion :: (any_struct: Any_Structure, body: Code, flags: For_Flags) #expand {
+for_expansion :: (structure: Any_Structure, body: Code, flags: For_Flags) #expand {
     // TODO: it_index here is not very meaningful...
-    for *`it_info, `it_index: any_struct.members {
+    for *`it_info, `it_index: structure.members {
         #if flags & .POINTER == 0 {
             if it_info.flags & .CONSTANT  continue;
         }
@@ -168,72 +178,16 @@ for_expansion :: (any_struct: Any_Structure, body: Code, flags: For_Flags) #expa
             if it_info.flags & .OVERLAY  continue;
         }
         
-        `it := Any.{ it_info.type, any_struct.value_pointer + it_info.offset_in_bytes };
+        `it := Any.{ it_info.type, structure.value_pointer + it_info.offset_in_bytes };
         
         #insert body;
     }
 }
 
-
-Struct_Member_Iterator_Flags :: enum_flags {
-    SKIP_CONSTANT;
-    SKIP_OVERLAY;
-    
-    SKIP_CONSTANT_AND_OVERLAY :: SKIP_CONSTANT | SKIP_OVERLAY;
+intialize :: (structure: Any_Structure) {
+    if structure.initializer  structure.initializer(structure.value_pointer);
+    else memset(structure.value_pointer, 0, structure.runtime_size);
 }
-
-// also provides 'it_info' iterator pointing to Type_Info_Struct_Member
-iterate_struct_members :: (any: Any, $flags: Struct_Member_Iterator_Flags, body: Code) #expand {
-    assert(any.type.type == .STRUCT);
-    ti_struct := any.type.(*Type_Info_Struct);
-    
-    #if flags & .SKIP_OVERLAY {
-        last_member_offset := -1;
-    }
-    for *`it_info, `it_index: ti_struct.members {
-        #if flags & .SKIP_CONSTANT {
-            if it_info.flags & .CONSTANT  continue;
-        }
-        #if flags & .SKIP_OVERLAY {
-            if it_info.flags & .OVERLAY  continue;
-        }
-        #if flags & .SKIP_OVERLAY {
-            // NOTE: This skips unions entirely, since all members have the same offset. 
-            //       So probably just don't use .SKIP_PLACE with unions I guess.
-            if it_info.offset_in_bytes <= last_member_offset  break;
-            last_member_offset = it_info.offset_in_bytes;
-        }
-        `it := Any.{ it_info.type, any.value_pointer + it_info.offset_in_bytes };
-        #insert body;
-    }
-}
-
-// TODO: this is sort of dumb. should probably be removed or should return base type
-unwrap_variant_type :: (any: Any) -> Any, bool {
-    if any.type.type == .VARIANT {
-        return Any.{
-            any.type.(*Type_Info_Variant).variant_of,
-            any.value_pointer
-        }, true;
-    }
-    return any, false;
-}
-
-dereference_any_pointer :: (any: Any) -> Any, bool {
-    if any.type.type == .POINTER {
-        return Any.{
-            any.type.(*Type_Info_Pointer).pointer_to,
-            any.value_pointer.(**void).*
-        }, true;
-    }
-    return any, false;
-}
-
-memcpy_any :: (dst: Any, src: Any) {
-    assert(dst.type == src.type, "% != %", as_type(dst.type), as_type(src.type));
-    memcpy(dst.value_pointer, src.value_pointer, src.type.runtime_size);
-}
-
 
 // ========== Any_Proc ==========
 
@@ -255,8 +209,7 @@ Any_Proc :: struct {
 }
 
 to_any_proc :: inline (any: Any) -> Any_Proc { 
-    assert(any.type.type == .PROCEDURE);
-    return .{ xx any.type, any.value_pointer.(**void).* };
+    return .{ assert_base_type(any.type, .PROCEDURE), any.value_pointer.(**void).* };
 }
 
 to_any :: inline (any: *Any_Proc) -> Any {
@@ -281,8 +234,8 @@ to_any :: inline (any: *Any_Proc) -> Any {
 */
 
 Any_Number :: struct {
-    type:  Type;
-    #overlay(type) _type_info: *Type_Info;
+    __type:  Type;
+    #overlay(__type) type: *Type_Info;
     
     using,except(from) value:  Number_Union;
     
@@ -293,7 +246,7 @@ Any_Number :: struct {
     };
     zero_of_type :: inline (T: *Type_Info) -> Any_Number { 
         assert(can_store_type(T));
-        return Any_Number.{ _type_info = T }; 
+        return Any_Number.{ type = T }; 
     };
     
     can_store_type :: inline (T: Type) -> bool { return can_store_type(T.(*Type_Info)); };
@@ -301,14 +254,14 @@ Any_Number :: struct {
 }
 
 to_any :: inline (any: *Any_Number) -> Any { 
-    return Any.{ any._type_info, *any.value }; 
+    return Any.{ any.type, *any.value }; 
 };
 
 get_as :: inline ($T: Type, any: Any_Number) -> bool, T #modify {
     return Any_Number.can_store_type(T);
 } {
     // TODO: add case for reading through value_pointer later, if we decide to do that sort of thing.
-    return any._type_info == type_info(T), (*any.value).(*T).*;
+    return any.type == type_info(T), (*any.value).(*T).*;
 }
 
 to_any_number :: inline (value: $T) -> Any_Number #modify {
@@ -316,11 +269,11 @@ to_any_number :: inline (value: $T) -> Any_Number #modify {
 } { 
     #if type_info(T).type == .ANY {
         assert(Any_Number.can_store_type(value.type));
-        ret := Any_Number.{ _type_info = value.type }; 
+        ret := Any_Number.{ type = value.type }; 
         memcpy(*ret.value, value.value_pointer, value.type.runtime_size);
         return ret;
     } else {
-        ret := Any_Number.{ type = T }; 
+        ret := Any_Number.{ __type = T }; 
         (*ret.value).(*T).* = value;
         return ret;
     }
@@ -395,12 +348,13 @@ Any_Array :: struct {
     using array_info:   *Type_Info_Array;
     value_pointer:      *void;
     
-    from :: make_any_array;
+    #overlay(array_info) as_any: Any;
+    
+    from :: to_any_array;
 }
 
-make_any_array :: (any: Any) -> Any_Array {
-    assert(any.type.type == .ARRAY, "Cannot make an Any_Array from type '%'.", as_type(any.type));
-    return .{ xx any.type, any.value_pointer };
+to_any_array :: (any: Any) -> Any_Array {
+    return .{ assert_base_type(any.type, .ARRAY), any.value_pointer };
 }
 
 // NOTE: basically duplicated from Reflection module
@@ -497,25 +451,14 @@ resize :: (array: Any_Array, new_count: int, $$initialize := false) {
     if initialize  init_range(array, old_count, new_count - old_count);
 }
 
-// TODO: maybe init_range should just use our dynamic array_view and then call initialize_any for each element
-//       that could be slightly slower, but it would be more simple and robust to changes in how we intitialize Any's
 init_range :: (array: Any_Array, begin: s64, count: s64) {
-    if count <= 0  return;
-    
     array_count, array_data := get_count_and_data(array);
-    assert(begin >= 0 && begin + count <= array_count, "begin: %, count: %, array_count: %", begin, count, array_count);
-    
-    if array.element_type.type == .STRUCT {
-        struct_info := array.element_type.(*Type_Info_Struct);
-        if struct_info.initializer {
-            for array_view(array, begin, count) {
-                struct_info.initializer(it.value_pointer);
-            }
-            return;
-        }
-    }
-    
-    memset(array_data + begin * array.element_type.runtime_size, 0, count * array.element_type.runtime_size);
+    view := Many_Any.{ 
+        element_type = array.element_type, 
+        count        = array_count, 
+        data         = array_data,
+    };
+    init_range(view, begin, count);
 }
 
 array_view :: (array: Any_Array, index: int, count := S64_MAX) -> Many_Any {
@@ -581,11 +524,9 @@ for_expansion :: (view: Many_Any, body: Code, for_flags: For_Flags) #expand {
     }
 }
 
-get_index :: inline (view: Many_Any, index: int) -> Any, bool {
-    if index < 0 || index >= view.count {
-        return Any.{}, false;
-    }
-    return Any.{ view.element_type, view.data + (index * view.element_type.runtime_size) }, true;
+get_index :: inline (view: Many_Any, index: int) -> Any {
+    assert(index >= 0 && index < view.count);
+    return Any.{ view.element_type, view.data + (index * view.element_type.runtime_size) };
 }
 operator [] :: get_index;
 
@@ -658,7 +599,7 @@ init_range :: (view: Many_Any, begin: s64, count: s64) {
         }
     }
     
-    memset(view.data + begin * view.element_type.runtime_size, 0, count * view.element_type.runtime_size );
+    memset(view.data + begin * view.element_type.runtime_size, 0, count * view.element_type.runtime_size);
 }
 
 // Any_Poly :: struct(T: Type) #modify {

@@ -62,14 +62,14 @@ get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_ti
 }
 
 Procedure_Info :: struct {
-    _type:          Type;
+    __type:         Type;
     arguments:      [] Argument;
     returns:        [] Argument;
     
     // TODO: include pointer to procedure?
     call_wrapper:   Procedure_Call_Wrapper;
     
-    #overlay(_type) using _type_info: *Type_Info_Procedure;
+    #overlay(__type) using __type_info: *Type_Info_Procedure;
     
     // TODO: maybe we should have separate arrays for each rather than an array of structs
     //       main reason being that we already have argument/return types in a separate array in _type_info
@@ -228,7 +228,7 @@ get_procedure_info :: ($procedure_expression: Code, $scope := #caller_code) -> P
     }
     
     return .{
-        _type                       = PROCEDURE_TYPE, 
+        __type                      = PROCEDURE_TYPE, 
         arguments                   = arguments, 
         returns                     = returns, 
         call_wrapper                = xx #bake_arguments call_procedure_checked(P = PROCEDURE_TYPE),

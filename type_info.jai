@@ -165,6 +165,41 @@ get_enum_valid_range :: (type: Type) -> (min: int, max: int) {
 
 // ========== Structs ==========
 
+get_member_info :: (struct_info: *Type_Info_Struct, name: string, recursive := false) -> (member_info: *Type_Info_Struct_Member, member_offset: int) {
+    member_info:    *Type_Info_Struct_Member;
+    member_offset:  int;
+    
+    for *struct_info.members {
+        if it.name == name {
+            member_info   = it;
+            member_offset = it.offset_in_bytes;
+            break;
+        }
+    }
+    
+    if recursive && member_info == null {
+        for *struct_info.members {
+            // TODO: is it possible to have a using on a constant member?
+            // TODO: redundant condition here? it.type.type == .STRUCT
+            if it.flags & .USING {
+                base_type := get_variant_base_type(it.type);
+                if base_type.type != .STRUCT  continue;
+                
+                member_info, member_offset = get_member_info(xx base_type, name, true);
+                if member_info {
+                    // NOTE: member_offset is ignored if member is constant, so this is ok to do unconditionally
+                    member_offset += it.offset_in_bytes; 
+                    break;
+                }
+            }
+        }
+    }
+    
+    if member_info == null            return null, 0;
+    if member_info.flags & .CONSTANT  return member_info, -1;
+    return member_info, member_offset;
+}
+
 are_structs_equivalent :: (ti1: *Type_Info_Struct, ti2: *Type_Info_Struct) -> bool {
     if ti1.runtime_size  != ti2.runtime_size   return false;
     if ti1.members.count != ti2.members.count  return false;
