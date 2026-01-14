@@ -636,3 +636,127 @@ init_range :: (view: Many_Any, begin: s64, count: s64) {
 // }
 
 
+// ========== Unions ==========
+
+get_union_tag :: (any_union: Any) -> (tag: Any, tag_info: *Type_Info_Struct_Member) {
+    union_info := assert_base_type(any_union.type, .STRUCT);
+    assert(is_tagged_union(union_info), "any_union was not a tagged union type!");
+    tag_member_info := *union_info.members[0];
+    return Any.{ tag_member_info.type, any_union.value_pointer + tag_member_info.offset_in_bytes }, tag_member_info;
+}
+
+// NOTE: If the union is using a Type as tag, then the Any returned may be null!
+get_valid_union_member :: (any_union: Any) -> (ok: bool, member: Any, member_info: *Type_Info_Struct_Member) {
+    union_info := assert_base_type(any_union.type, .STRUCT);
+    valid_member_index: int;
+    
+    tag := get_union_tag(any_union); // will assert that any_union is actually a tagged union
+    if tag.type.type == {
+      case .ENUM;
+        // NOTE: We will hopefully have better ability to map enum values to union members in the future, which will require new logic here...
+        #through;
+        
+      case .INTEGER;
+        // NOTE: I am ignoring signedness here since the tag should presumably never have a negative value.
+        if tag.type.runtime_size == {
+          case 1; valid_member_index = xx,no_check tag.value_pointer.(*u\8).*;
+          case 2; valid_member_index = xx,no_check tag.value_pointer.(*u16).*;
+          case 4; valid_member_index = xx,no_check tag.value_pointer.(*u32).*;
+          case 8; valid_member_index = xx,no_check tag.value_pointer.(*u64).*;
+        }
+        
+      case .TYPE;
+        valid_type := tag.value_pointer.(**Type_Info).*;
+        for *union_info.members {
+            if it.flags & (.CONSTANT | .OVERLAY) continue;
+            if it.type == valid_type {
+                return true, Any.{ it.type, any_union.value_pointer + it.offset_in_bytes }, it;
+            }
+        }
+        return false, Any.{}, null;
+        
+      case;
+        assert(false, "Invalid union tag type: %", tag.type.type);
+    }
+    
+    // NOTE: We have to manually count our way to the valid field, skipping constant and overlay members.
+    //       We also skip the first member since this is always the tag member.
+    members := union_info.members;
+    members.data  += 1;
+    members.count -= 1;
+    for *members {
+        if it.flags & (.CONSTANT | .OVERLAY) continue;
+        if valid_member_index == 0 {
+            return true, Any.{ it.type, any_union.value_pointer + it.offset_in_bytes }, it;
+        }
+        valid_member_index -= 1;
+    }
+    
+    return false, Any.{}, null;
+}
+
+format_tagged_union_value :: (any_union: Any) -> string {
+    ok, member, member_info := get_valid_union_member(any_union);
+    tag, tag_info := get_union_tag(any_union);
+    
+    // TODO: could check print style to match struct printing better
+    builder: String_Builder;
+    append(*builder, "{ ");
+    append(*builder, tag_info.name);
+    append(*builder, " = ");
+    print_item_to_builder(*builder, tag, inside_struct_or_array = true);
+    append(*builder, "; ");
+    if ok {
+        append(*builder, member_info.name);
+        append(*builder, " = ");
+        print_item_to_builder(*builder, member, inside_struct_or_array = true);
+        append(*builder, "; ");
+    } else {
+        append(*builder, "(no valid member) ");
+    }
+    append(*builder, "}");
+    return builder_to_string(*builder);
+}
+
+// NOTE: The semantics here are maybe a bit odd if the tag is not a Type.
+//       We will just set the tag based on the index of the first member with a matching type.
+set_union_from_any :: (any_union: Any, value: Any) -> bool {
+    union_info := assert_base_type(any_union.type, .STRUCT);
+    assert(is_union(union_info));
+    
+    is_tagged := is_tagged_union(union_info);
+    
+    members := union_info.members;
+    if is_tagged {
+        members.data  += 1;
+        members.count -= 1; 
+    }
+    
+    tag_member_index := 0;
+    
+    for *members {
+        if it.flags & (.CONSTANT | .OVERLAY) continue;
+        defer tag_member_index += 1;
+        
+        if it.type == value.type {
+            member := Any.{ it.type, any_union.value_pointer + it.offset_in_bytes };
+            memcpy_any(member, value);
+            
+            if is_tagged {
+                tag := get_union_tag(any_union);
+                if tag.type.type == {
+                  case .TYPE;
+                    memcpy_any(tag, member.type);
+                    
+                  case .INTEGER;
+                  case .ENUM;
+                    // NOTE: not exactly a typesafe operation here, but should be correct assuming no negative tags.
+                    memcpy(tag.value_pointer, *tag_member_index, tag.type.runtime_size);
+                }
+            }
+            
+            return true;
+        }
+    }
+    return false;
+}
