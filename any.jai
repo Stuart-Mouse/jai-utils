@@ -135,9 +135,20 @@ get_member :: (any_struct: Any_Structure, name: string, recursive := false) -> (
     member_info:    *Type_Info_Struct_Member, 
     member_offset:  int
 ) {
-    member_info, member_offset := get_member_info(any_struct.struct_info, name, recursive);
-    if member_info == null  return false, Any.{}, null, 0;
-    return true, Any.{ member_info.type, any_struct.value_pointer + member_offset }, member_info, member_offset;
+    info, offset := get_member_info(any_struct.struct_info, name, recursive);
+    if info == null  return false, Any.{}, null, 0;
+    if info.flags & .CONSTANT {
+        return true, Any.{ info.type, any_struct.constant_storage.data + info.offset_into_constant_storage }, info, -1;
+    }
+    return true, Any.{ info.type, any_struct.value_pointer + offset }, info, offset;
+}
+
+get_member_by_index :: (any_struct: Any_Structure, index: int) -> Any, *Type_Info_Struct_Member {
+    info := *any_struct.members[index];
+    if info.flags & .CONSTANT {
+        return Any.{ info.type, any_struct.constant_storage.data + info.offset_into_constant_storage }, info;
+    }
+    return Any.{ info.type, any_struct.value_pointer + info.offset_in_bytes }, info;
 }
 
 get_struct_member :: (any: Any, name: string, recursive := false) -> bool, Any, *Type_Info_Struct_Member, int {
