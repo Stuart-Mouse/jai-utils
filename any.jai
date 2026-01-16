@@ -34,9 +34,9 @@ unwrap_any_variant :: (any: Any) -> Any {
 }
 
 dereference_any_pointer :: (any: Any) -> Any {
-    assert(any.type.type == .POINTER);
+    base_type := assert_base_type(any.type, .POINTER);
     return Any.{
-        any.type.(*Type_Info_Pointer).pointer_to,
+        base_type.(*Type_Info_Pointer).pointer_to,
         any.value_pointer.(**void).*
     };
 }
