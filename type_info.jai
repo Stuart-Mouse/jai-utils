@@ -58,6 +58,26 @@ get_variant_base_type :: inline (type: *Type_Info) -> *Type_Info {
     return type;
 }
 
+// TODO: Figure out how to make type_type an optional bake. Compiler doesn't like it like that, but I thought I saw some workaround on the discord a while back...
+assert_base_type :: (type: *Type_Info, $type_type: Type_Info_Tag) -> $R #modify {
+    if type_type == {
+      case .VARIANT;    R = *Type_Info_Variant;
+      case .STRUCT;     R = *Type_Info_Struct;
+      case .ARRAY;      R = *Type_Info_Array;
+      case .INTEGER;    R = *Type_Info_Integer;
+      case .FLOAT;      R = *Type_Info_Float;
+      case .PROCEDURE;  R = *Type_Info_Procedure;
+      case .ENUM;       R = *Type_Info_Enum;
+      case .POINTER;    R = *Type_Info_Pointer;
+      case;             R = *Type_Info;
+    }
+    return true;
+} {
+    base_type := get_variant_base_type(type);
+    assert(base_type.type == type_type, "type must be a %, but it was a %", type_type, base_type.type);
+    return xx base_type;
+}
+
 
 // Two types are considered equivalent if we can memcpy between the two types validly.
 Type_Comparison_Flags :: enum_flags {
