@@ -415,6 +415,21 @@ make_identifier :: (name: string) -> *Code_Ident {
     return ident;
 }
 
+make_binary_operator :: (operator_type: Operator_Type, lhs: *Code_Node, rhs: *Code_Node) -> *Code_Binary_Operator {
+    code_operator := New(Code_Binary_Operator);
+    code_operator.operator_type = #char ".";
+    code_operator.left  = lhs;
+    code_operator.right = rhs;
+    return code_operator;
+}
+
+make_unary_operator :: (operator_type: Operator_Type, expression: *Code_Node) -> *Code_Unary_Operator {
+    code_operator := New(Code_Unary_Operator);
+    code_operator.operator_type = operator_type;
+    code_operator.subexpression = expression;
+    return code_operator;
+}
+
 // TODO: make a version where we can just pass arguments as code in name = value format, or just as values
 //       maybe this is a trivial convenience, but it would be kinda nice
 make_procedure_call :: (procedure_name: string, arguments: ..Code_Argument) -> *Code_Procedure_Call {
@@ -545,8 +560,6 @@ log_arguments :: ($procedure_call_code: Code) #expand {
         return compiler_get_code(block, procedure_call_code);
     }
 }
-
-
 
 
 
