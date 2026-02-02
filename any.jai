@@ -636,25 +636,49 @@ get_union_tag :: (any_union: Any) -> (tag: Any, tag_info: *Type_Info_Struct_Memb
     return Any.{ tag_member_info.type, any_union.value_pointer + tag_member_info.offset_in_bytes }, tag_member_info;
 }
 
-// NOTE: If the union is using a Type as tag, then the Any returned may be null!
 get_valid_union_member :: (any_union: Any) -> (ok: bool, member: Any, member_info: *Type_Info_Struct_Member) {
     union_info := assert_base_type(any_union.type, .STRUCT);
-    valid_member_index: int;
     
     tag := get_union_tag(any_union); // will assert that any_union is actually a tagged union
     if tag.type.type == {
       case .ENUM;
-        // NOTE: We will hopefully have better ability to map enum values to union members in the future, which will require new logic here...
+        if union_info.tagged_union_bindings {
+            tag_as_u64: u64;
+            if tag.type.runtime_size == {
+              case 1; tag_as_u64 = xx,no_check tag.value_pointer.(*u\8).*;
+              case 2; tag_as_u64 = xx,no_check tag.value_pointer.(*u16).*;
+              case 4; tag_as_u64 = xx,no_check tag.value_pointer.(*u32).*;
+              case 8; tag_as_u64 = xx,no_check tag.value_pointer.(*u64).*;
+            }
+            for binding: union_info.tagged_union_bindings {
+                if binding.constant_value == tag_as_u64 {
+                    valid_member_info := *union_info.members[binding.member_index];
+                    return true, Any.{ valid_member_info.type, any_union.value_pointer + valid_member_info.offset_in_bytes }, valid_member_info;
+                }
+            }
+            log("Error: tag value % (%) has no member binding.", tag, tag_as_u64);
+            log("Tagged union bindings for type %:", as_type(any_union.type));
+            for binding: union_info.tagged_union_bindings {
+                log("%: %", binding.constant_value, binding.member_index);
+            }
+            return false, Any.{}, null;
+        }
         #through;
         
       case .INTEGER;
         // NOTE: I am ignoring signedness here since the tag should presumably never have a negative value.
+        valid_member_index: u64;
         if tag.type.runtime_size == {
           case 1; valid_member_index = xx,no_check tag.value_pointer.(*u\8).*;
           case 2; valid_member_index = xx,no_check tag.value_pointer.(*u16).*;
           case 4; valid_member_index = xx,no_check tag.value_pointer.(*u32).*;
           case 8; valid_member_index = xx,no_check tag.value_pointer.(*u64).*;
         }
+        if valid_member_index < 0 || valid_member_index >= xx union_info.members.count {
+            return false, Any.{}, null;
+        }
+        valid_member_info := *union_info.members[valid_member_index];
+        return true, Any.{ valid_member_info.type, any_union.value_pointer + valid_member_info.offset_in_bytes }, valid_member_info;
         
       case .TYPE;
         valid_type := tag.value_pointer.(**Type_Info).*;
@@ -670,19 +694,7 @@ get_valid_union_member :: (any_union: Any) -> (ok: bool, member: Any, member_inf
         assert(false, "Invalid union tag type: %", tag.type.type);
     }
     
-    // NOTE: We have to manually count our way to the valid field, skipping constant and overlay members.
-    //       We also skip the first member since this is always the tag member.
-    members := union_info.members;
-    members.data  += 1;
-    members.count -= 1;
-    for *members {
-        if it.flags & (.CONSTANT | .OVERLAY) continue;
-        if valid_member_index == 0 {
-            return true, Any.{ it.type, any_union.value_pointer + it.offset_in_bytes }, it;
-        }
-        valid_member_index -= 1;
-    }
-    
+    // unreachable
     return false, Any.{}, null;
 }
 
