@@ -7,9 +7,8 @@
     I should probably put this up on my github and figure out how to do a submodule thing so that I don't have to keep duplicating all these functions.
 */
 
+#import "Reflect";
 
-#load "any.jai";
-#load "type_info.jai";
 #load "procedure_info.jai";
 #load "arrays.jai";
 #load "scanner.jai";
@@ -18,7 +17,6 @@
 #load "fixed_bit_array.jai";
 #load "slot_array.jai";
 #load "dynamic_procedure_call.jai";
-#load "Any_Hash_Table.jai";
 
 
 // ========== General Purpose ==========
@@ -47,7 +45,7 @@ is_valid_index :: inline (array: []$T, index: int) -> bool {
 }
 
 is_within_range :: inline (value: $T, low: T, high: T) -> bool #modify {
-    return is_numeric_type(T);
+    return is_numeric(T);
 } {
     return value >= low && value <= high;
 }

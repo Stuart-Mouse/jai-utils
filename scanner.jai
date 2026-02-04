@@ -35,12 +35,6 @@ advance :: inline (using scanner: *Scanner, amount := 1) -> bool {
     return file.count > 0; // return false when we hit EOF
 }
 
-is_hex_digit :: (c: u8) -> bool {
-    return c >= "0" && c <= "9"
-        || c >= "a" && c <= "f"
-        || c >= "A" && c <= "F";
-}
-
 /*
     NOTE:
         permits a leading '-' or '+' for sign
@@ -97,81 +91,115 @@ try_lex_number :: (using scanner: *Scanner) -> string {
 
 // ========== Escape Sequences ==========
 
-// TODO: figure out some way to avoid all the use of tprint. 
-// We can probably just have user provide a fixed-size buffer for us to work with here.
-parse_escape_sequence :: (str: string, quote_char: u8 = "\"") -> value: string, success: bool, sequence_length: int {
+parse_escape_sequence :: (str: string, quote_char: u8 = "\"") -> (success: bool, result: string, input_sequence_length: int) #expand {
+    success, result_buffer, result_length, input_sequence_length := parse_escape_sequence_to_buffer(str, quote_char);
+    return success, string.{ result_length, result_buffer.data }, input_sequence_length;
+}
+
+parse_escape_sequence_to_buffer :: (str: string, quote_character: u8 = "\"") -> (success: bool, result_buffer: [8] u8, result_length: int, input_sequence_length: int) {
+    result_buffer: [8] u8;
+    
     if str.count < 2 || str[0] != "\\" {
-        return "", false, 0;
+        return false, result_buffer, 0, 0;
     }
     
-    if str[1] == quote_char {
-        // this is silly
-        return copy_string(string.{ 1, *quote_char },, temp), true, 2;
+    if str[1] == quote_character {
+        result_buffer[0] = quote_character;
+        return true, result_buffer, 1, 2;
     }
     
     if str[1] == {
-      case "e";   return "\e", true, 2;
-      case "n";   return "\n", true, 2;
-      case "r";   return "\r", true, 2;
-      case "t";   return "\t", true, 2;
-      case "0";   return "\0", true, 2;
-      case "\\";  return "\\", true, 2;
-      
+      case "e";   
+        result_buffer[0] = #char "\e";
+        return true, result_buffer, 1, 2;
+      case "n";   
+        result_buffer[0] = #char "\n";
+        return true, result_buffer, 1, 2;
+      case "r";   
+        result_buffer[0] = #char "\r";
+        return true, result_buffer, 1, 2;
+      case "t";   
+        result_buffer[0] = #char "\t";
+        return true, result_buffer, 1, 2;
+      case "0";   
+        result_buffer[0] = #char "\0";
+        return true, result_buffer, 1, 2;
+      case "\\";  
+        result_buffer[0] = #char "\\";
+        return true, result_buffer, 1, 2;
+        
       case "x";
         if str.count < 4 {
             log("Error: unexpected EOF in hexadecimal escape sequence: '%'", str);
-            return "", false, 0;
+            return false, result_buffer, 0, 0;
         }
-        return tprint(slice(str, 0, 4)), true, 4;
+        to_convert := slice(str, 2, 2);
+        ok, written := ascii_hex_to_bytes(result_buffer, to_convert);
+        if !(ok && written == 2) {
+            log("Error: Failed to convert ascii hex sequence to bytes: '%'", to_convert);
+            return false, result_buffer, 0, 0;
+        }
+        return true, result_buffer, 2, 6;
         
       case "d";
         if str.count < 5 {
             log("Error: unexpected EOF in decimal escape sequence: '%'", str);
-            return "", false, 0;
+            return false, result_buffer, 0, 0;
         }
-        val, ok, remainder := string_to_u64(slice(str, 2, 3));
+        value, ok, remainder := string_to_u64(slice(str, 2, 3));
         if !ok || remainder {
             log("Error: invalid decimal escape sequence: '%'", str);
-            return "", false, 0;
+            return false, result_buffer, 0, 0;
         }
-        if val > 255 {
+        if value > 255 {
             log("Error: value of decimal escape sequence cannot be greater than 255: '%'", str);
-            return "", false, 0;
+            return false, result_buffer, 0, 0;
         }
-        return tprint(slice(str, 0, 5)), true, 5;
+        result_buffer[0] = value.(u8);
+        return true, result_buffer, 1, 5;
         
       case "u";
         if str.count < 6 {
             log("Error: unexpected EOF in 16-bit unicode escape sequence: '%'", str);
-            return "", false, 0;
+            return false, result_buffer, 0, 0;
         }
-        return tprint(slice(str, 0, 6)), true, 6;
+        to_convert := slice(str, 2, 4);
+        ok, written := ascii_hex_to_bytes(result_buffer, to_convert);
+        if !(ok && written == 2) {
+            log("Error: Failed to convert ascii hex sequence to bytes: '%'", to_convert);
+            return false, result_buffer, 0, 0;
+        }
+        return true, result_buffer, 2, 6;
         
       case "U";
         if str.count < 10 {
             log("Error: unexpected EOF in 32-bit unicode escape sequence: '%'", str);
-            return "", false, 0;
+            return false, result_buffer, 0, 0;
         }
-        return tprint(slice(str, 0, 10)), true, 10;
+        to_convert := slice(str, 2, 8);
+        ok, written := ascii_hex_to_bytes(result_buffer, to_convert);
+        if !(ok && written == 4) {
+            log("Error: Failed to convert ascii hex sequence to bytes: '%'", to_convert);
+            return false, result_buffer, 0, 0;
+        }
+        return true, result_buffer, 4, 6;
     }
     
     log("Error: invalid escape sequence beginning with: '%'", slice(str, 0, 2));
-    return "", false, 0;
+    return false, result_buffer, 0, 0;
 }
 
 parse_escape_sequence :: (scanner: *Scanner) -> value: string, success: bool {
-    value, ok, len := parse_escape_sequence(scanner.file);
+    ok, value, len := parse_escape_sequence(scanner.file);
     if ok  advance(scanner, len);
     return value, ok;
 }
 
-
-// Feels poorly named, but not sure what else to call it.
-convert_escape_sequences :: (builder: *String_Builder, text: string, quote_char: u8 = "\"") -> bool {
+unescape_string :: (builder: *String_Builder, text: string, quote_char: u8 = "\"") -> bool {
     _text := text;
     while _text {
         if _text[0] == "\\" {
-            str, ok, len := parse_escape_sequence(_text, quote_char);
+            ok, str, len := parse_escape_sequence(_text, quote_char);
             if !ok  return false;
             append(builder, str);
             advance(*_text, len);
@@ -183,9 +211,9 @@ convert_escape_sequences :: (builder: *String_Builder, text: string, quote_char:
     return true;
 }
 
-convert_escape_sequences :: (text: string) -> string, bool {
+unescape_string :: (text: string) -> string, bool {
     builder: String_Builder;
-    ok := convert_escape_sequences(*builder, text);
+    ok := unescape_string(*builder, text);
     if !ok {
         free_buffers(*builder);
         return "", false;
@@ -193,8 +221,7 @@ convert_escape_sequences :: (text: string) -> string, bool {
     return builder_to_string(*builder), true;
 }
 
-// Feels poorly named, but not sure what else to call it.
-revert_escape_sequences :: (builder: *String_Builder, text: string, quote_char: u8 = "\"") -> bool {
+escape_string :: (builder: *String_Builder, text: string, quote_char: u8 = "\"") -> bool {
     if !text  return true;
     
     // for text {
@@ -217,7 +244,7 @@ revert_escape_sequences :: (builder: *String_Builder, text: string, quote_char: 
         // if outside of printable ascii range, append as hex escape sequence
         if it < 0x20 || it == 0x7f {
             append(builder, "\\x");
-            append(builder, xx byte_to_ascii_hex(it.(u8)));
+            append(builder, byte_to_ascii_hex(it.(u8)).(string));
             continue;
         }
         
@@ -234,9 +261,9 @@ revert_escape_sequences :: (builder: *String_Builder, text: string, quote_char: 
     return true;
 }
 
-revert_escape_sequences :: (text: string) -> string, bool {
+escape_string :: (text: string) -> string, bool {
     builder: String_Builder;
-    ok := revert_escape_sequences(*builder, text);
+    ok := escape_string(*builder, text);
     if !ok {
         free_buffers(*builder);
         return "", false;
@@ -261,7 +288,6 @@ revert_escape_sequences :: (text: string) -> string, bool {
     
     See parse_number below this to see how this procedure is used in context, and how we then downcast to the other integer types.
 */
-
 
 string_to_u64 :: (text: string, base: u64 = 10) -> result: u64, success: bool, remainder: string {
     assert(base == 16 || base <= 10);
@@ -401,113 +427,57 @@ parse_number :: (s: string) -> result: Any_Number, success: bool, remainder: str
 
 // ========== ASCII Hexadecimal to Binary Conversions ==========
 
-ascii_hex_char_to_byte :: (c: u8) -> u8 {
-    if c >= "0" && c <= "9" then return  c - "0";
-    if c >= "A" && c <= "F" then return (c - "A") + 10;
-    if c >= "a" && c <= "f" then return (c - "a") + 10;
-    return 0;
+is_hex_digit :: (c: u8) -> bool {
+    return c >= "0" && c <= "9"
+        || c >= "a" && c <= "f"
+        || c >= "A" && c <= "F";
 }
 
-// // TODO: this procedure is too big and complicated, with too many parameters!
-// //       we should split it up into multiple more focused procedures
-// ascii_hex_to_bytes_buf :: (
-//     dst:        []u8, 
-//     src:        string, 
-//     pad_type:   Data_Pad_Type = .NONE, 
-//     pad_byte:   u8            = 0, 
-//     big_endian := false // endianness of dst
-// ) -> int {
-//     src := transmute([]u8) src
-    
-//     pad_type := pad_type
+// success indicator is intentionally the second return here, since in very many cases people will want to ignore it
+ascii_hex_char_to_byte :: (c: u8) -> u8, bool {
+    if c >= "0" && c <= "9" then return  c - "0", true;
+    if c >= "A" && c <= "F" then return (c - "A") + 10, true;
+    if c >= "a" && c <= "f" then return (c - "a") + 10, true;
+    return 0, false;
+}
 
-//     src_len_is_odd := (len(src) & 1) == 1
-//     if src_len_is_odd {
-//         if pad_type == .NONE {
-//             return -1
-//         }
-//     } else {
-//         pad_type = .NONE
-//     }
+ascii_hex_to_bytes :: (dst: [] u8, src: string, big_endian := false) -> success: bool, bytes_written: int {
+    assert(src.count & 1 == 0, "src string passed to ascii_hex_to_bytes must have an even number of characters!");
     
-//     len_bytes := len(src) / 2 + int(src_len_is_odd)
-//     if len(dst) < len_bytes {
-//         return -1
-//     }
+    if dst.count < src.count  return false, 0;
     
-//     nib1_shift        : uint = 4
-//     nib2_shift        : uint = 0
-//     nib2_store_offset :  int = 0
+    src_ptr := src.data;
     
-//     end := len_bytes
+    output_size := src.count / 2;
     
-//     #partial switch pad_type {
-//       case .LEFT:
-//         // for left pad, switch the shifts of each source nibble and store second nibble in the next byte
-//         nib1_shift = 0
-//         nib2_shift = 4
-//         nib2_store_offset = 1
+    dst_ptr, end_ptr:   *u8;
+    dst_ptr_increment:  int;
+    
+    if big_endian {
+        dst_ptr = dst.data;
+        end_ptr = dst.data + output_size;
+        dst_ptr_increment = 1;
+    } else {
+        dst_ptr = dst.data + output_size - 1;
+        end_ptr = dst.data - 1;
+        dst_ptr_increment = -1;
+    }
+    
+    while dst_ptr != end_ptr {
+        upper_nibble, ok := ascii_hex_char_to_byte((src_ptr).*);
+        if !ok  return false, 0;
         
-//         dst[0] = (0xF0 & pad_byte)
-//         fallthrough
-            
-//       case .RIGHT:
-//         // for both left and right cases, stop one byte short of the end and write the last byte manually
-//         end -= 1
-//     }
+        lower_nibble:, ok = ascii_hex_char_to_byte((src_ptr+1).*);
+        if !ok  return false, 0;
+        
+        dst_ptr.* = (upper_nibble << 4) | (lower_nibble);
+        
+        src_ptr += 2;
+        dst_ptr += dst_ptr_increment;
+    }
     
-//     src_i := 0
-//     dst_i := 0
-//     if big_endian {
-//         dst_i = end - 1
-//         for dst_i >= 0 {
-//             nib1 := ascii_hex_char_to_int(src[src_i  ])
-//             nib2 := ascii_hex_char_to_int(src[src_i+1])
-//             dst[dst_i                  ] |= nib1 << nib1_shift
-//             dst[dst_i+nib2_store_offset] |= nib2 << nib2_shift
-            
-//             src_i += 2
-//             dst_i -= 1
-//         }
-//     } else {
-//         for dst_i < end {
-//             nib1 := ascii_hex_char_to_int(src[src_i  ])
-//             nib2 := ascii_hex_char_to_int(src[src_i+1])
-//             dst[dst_i                  ] |= nib1 << nib1_shift
-//             dst[dst_i+nib2_store_offset] |= nib2 << nib2_shift
-            
-//             src_i += 2
-//             dst_i += 1
-//         }
-//     }
-    
-//     #partial switch pad_type {
-//       case .LEFT:
-//         // OR in the last nibble from src
-//         dst[dst_i] |= (0x0F & ascii_hex_char_to_int(src[src_i]))
-            
-//       case .RIGHT:
-//         // high nibble is the last nibble from src, low nibble is pad
-//         nib1 := ascii_hex_char_to_int(src[src_i])
-//         nib2 := (0x0F & pad_byte)
-//         dst[dst_i] = (nib1 << 4) | nib2
-//     }
-    
-//     return len_bytes
-// }
-
-// ascii_hex_to_bytes :: (src: string, pad_type: Data_Pad_Type = .NONE, pad_byte: u8 = 0, allocator := context.allocator) -> ([]u8, bool) {
-//     len_bytes := nibble_len_to_byte_len(len(src))
-//     dst := make([]u8, len_bytes, allocator = allocator)
-    
-//     bytes_written := ascii_hex_to_bytes_buf(dst, src, pad_type, pad_byte)
-//     if bytes_written != len(dst) {
-//         delete(dst)
-//         return {}, false
-//     }
-    
-//     return dst, true
-// }
+    return true, output_size;
+}
 
 ASCII_HEX_NIBBLES :: "0123456789ABCDEF";
 
@@ -533,13 +503,3 @@ bytes_to_ascii_hex :: (dst: [] u8, src: string) -> (bytes_written: int) {
     }
     return output_size;
 }
-
-// Technically this can just be an inline proc, but because we are explicitly relying on the
-// buffer's storage belonging to the caller's scope, it feels better for this to be a macro.
-// with_buffer :: ($BYTE_COUNT: int, $proc: ([]u8, string) -> int, src: string) -> string #expand {
-//     #assert(proc != null);
-//     buffer: [BYTE_COUNT] u8;
-//     bytes_written := proc(buffer, src);
-//     assert(bytes_written >= 0 && bytes_written <= BYTE_COUNT);
-//     return string.{ bytes_written, *buffer };
-// }

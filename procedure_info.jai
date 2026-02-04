@@ -26,6 +26,8 @@
     TODO: 
         think about what things we could actually do with return value names
         maybe would be useful for something similar to or_return?
+        
+    TODO: eventually move this to the Reflect module
 */
 
 get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_time {
@@ -264,6 +266,7 @@ Program_Print :: #import "Program_Print";
 //     return builder_to_string(*builder);
 // }
 
+// TODO: move to some compiler utils module, eventually
 print_code_nodes :: (builder: *String_Builder, node: *Code_Node, indent := 0) {
     if node == null  return;
     
