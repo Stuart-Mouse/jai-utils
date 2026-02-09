@@ -417,7 +417,7 @@ make_identifier :: (name: string) -> *Code_Ident {
 
 make_binary_operator :: (operator_type: Operator_Type, lhs: *Code_Node, rhs: *Code_Node) -> *Code_Binary_Operator {
     code_operator := New(Code_Binary_Operator);
-    code_operator.operator_type = #char ".";
+    code_operator.operator_type = operator_type;
     code_operator.left  = lhs;
     code_operator.right = rhs;
     return code_operator;
@@ -451,13 +451,29 @@ make_if_case :: (condition: *Code_Node, cases: ..*Code_Case) -> *Code_If {
     if_node.condition = condition;
     if_node.then_block = New(Code_Block);
     
+    if_node.then_block.owning_statement = if_node;
     if_node.then_block.statements = cast,force([]*Code_Node) cases;
     for cases {
-        it.then_block.node_flags = .IS_PARENTHESIZED;
-        it.then_block.owning_statement = cases[0];
+        // it.owning_if = if_node;
+        // it.then_block.node_flags = .IS_PARENTHESIZED;
+        it.then_block.owning_statement = it.then_block.statements[0];
     }
     
     if_node.if_flags = .IS_SWITCH_STATEMENT;
+    
+    
+    
+    log("if_node: %: %", if_node, if_node.*);
+    log("if_node.condition: %: %", if_node.condition, if_node.condition.*);
+    log("if_node.then_block: %: %", if_node.then_block, if_node.then_block.*);
+    
+    log("if_node.then_block.statements:");
+    for if_node.then_block.statements {
+        log("%: %", it, it.(*Code_Case).*);
+        log("%: %", it, it.(*Code_Case).then_block.*);
+        log("owning_if: %", it.(*Code_Case).owning_if);
+    }
+    
     return if_node;
 }
 
