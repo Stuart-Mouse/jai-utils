@@ -446,138 +446,24 @@ make_procedure_call :: (procedure_expression: *Code_Node, arguments: ..Code_Argu
     return call;
 }
 
-make_if_case :: (condition: *Code_Node, cases: ..*Code_Case) -> *Code_If {
-    if_node := New(Code_If);
-    if_node.condition = condition;
-    if_node.then_block = New(Code_Block);
-    
-    if_node.then_block.owning_statement = if_node;
-    if_node.then_block.statements = cast,force([]*Code_Node) cases;
-    for cases {
-        // it.owning_if = if_node;
-        // it.then_block.node_flags = .IS_PARENTHESIZED;
-        it.then_block.owning_statement = it.then_block.statements[0];
-    }
-    
-    if_node.if_flags = .IS_SWITCH_STATEMENT;
-    
-    
-    
-    log("if_node: %: %", if_node, if_node.*);
-    log("if_node.condition: %: %", if_node.condition, if_node.condition.*);
-    log("if_node.then_block: %: %", if_node.then_block, if_node.then_block.*);
-    
-    log("if_node.then_block.statements:");
-    for if_node.then_block.statements {
-        log("%: %", it, it.(*Code_Case).*);
-        log("%: %", it, it.(*Code_Case).then_block.*);
-        log("owning_if: %", it.(*Code_Case).owning_if);
-    }
-    
-    return if_node;
-}
-
-// TODO: test inserting the procedure as a string using program print. I reckon that will fail also
-
-// Basic insert fails here.
-// insert_procedure :: ($procedure_code: Code) {
-//     PROCEDURE :: #insert procedure_code;
-//     PROCEDURE(5);
-// }
-
-// insert,scope() fails also, whether using procedure_code or other, separately provided scope.
-// insert_procedure :: ($procedure_code: Code, $scope := #caller_code) {
-//     PROCEDURE :: #insert,scope(scope) procedure_code;
-//     PROCEDURE(5);
-// }
-
-// Getting the nodes and then calling compiler_get_code with the target scope fares no better.
-// insert_procedure :: ($procedure_code: Code, $scope := #caller_code) {
-//     PROCEDURE :: #insert -> Code {
-//         root := compiler_get_nodes(procedure_code);
-//         return compiler_get_code(root, scope);
-//     }
-//     PROCEDURE(5);
-// }
-
-// Yet, this one works. It's almost like the compiler is just not propagating the scope through procedure headers for some reason, 
-// but if we remove the argument expression from its context and insert it alone, then it gets the proper scope.
-get_default_value_of_first_procedure_argument :: ($procedure_code: Code, $scope := #caller_code) {
-    DEFAULT_VALUE :: #insert -> Code {
-        root := compiler_get_nodes(procedure_code).(*Code_Procedure_Header);
-        return compiler_get_code(root.arguments[0].expression, scope);
-    };
-    log("%", DEFAULT_VALUE);
-}
-
-
-
-log_arguments :: ($procedure_call_code: Code) #expand {
-    __array_view :: ($E: Type, values: [] E) -> [] E #expand { return values; }
-    
-    #insert -> Code {
+make_if_case :: (condition: *Code_Node, cases: [] *Code_Case) -> *Code_If {
+    code_if := New(Code_If);
+    code_if.if_flags = .IS_SWITCH_STATEMENT;
+    code_if.condition = condition;
+    code_if.then_block = ifx 1 {
         block := New(Code_Block);
-        block.block_type = .IMPERATIVE;
-        
-        statements: [..] *Code_Node;
-        
-        procedure_call := compiler_get_nodes(procedure_call_code).(*Code_Procedure_Call);
-        assert(procedure_call.kind == .PROCEDURE_CALL);
-        
-        procedure_header := get_procedure_header(procedure_call);
-        assert(procedure_header != null, "Error: unable to get procedure header from code:\n%", sprintx(procedure_call));
-        
-        for argument, argument_index: procedure_call.arguments_sorted {
-            log("argument %: %", argument_index, argument);
-            format_string := make_string_literal(tprint("argument %: \%", argument_index));
-            log("format_string: %", format_string);
-            
-            // if argument.kind == {
-            //   case .MAKE_VARARGS;
-            //     make_varargs := argument.(*Code_Make_Varargs);
-                
-            //     varargs_array_members := NewArray(make_varargs.expressions.count, *Code_Node);
-            //     for make_varargs.expressions {
-            //         // if make_varargs.element_type.type == .ANY {
-            //         //     varargs_array_members[it_index] = make_procedure_call("__copy_value", 
-            //         //         .{ expression = argument_type_expression },
-            //         //         .{ expression = it }
-            //         //     );
-            //         // } else {
-            //             varargs_array_members[it_index] = it;
-            //         // }
-            //     }
-            //     varargs_array_literal := make_procedure_call("__array_view", 
-                    
-            //         make_array_literal(null, varargs_array_members)
-            //     );
-                
-            //     log_call := make_procedure_call("log", 
-            //         .{ expression = format_string },
-            //         .{ expression = varargs_array_literal },
-            //     );
-            //     array_add(*statements, log_call);
-                
-            //   case;
-                log_call := make_procedure_call("log", 
-                    .{ expression = format_string },
-                    .{ expression = argument },
-                );
-                array_add(*statements, log_call);
-            // }
+        block.block_type       = .IMPERATIVE;
+        block.owning_statement = code_if;
+        block.statements       = cast,force([]*Code_Node) cases;
+        for cases {
+            // NOTE: I have no idea why, but it seems to be the case that the then blocks of case statements point to the first statement of the then block as their owning statement.
+            // it.then_block.owning_statement = it.then_block.statements[0];
+            it.then_block.parent = block;
         }
-        
-        array_add(*statements, procedure_call);
-        
-        block.statements = xx statements;
-        
-        log("%", sprintx(block));
-        
-        return compiler_get_code(block, procedure_call_code);
-    }
+        block;
+    };
+    return code_if;
 }
-
-
 
 
 #scope_file
