@@ -7,7 +7,9 @@
     I should probably put this up on my github and figure out how to do a submodule thing so that I don't have to keep duplicating all these functions.
 */
 
+// TODO: Remove dependencies, probably. I guess it matters less over time as I just move things out of here...
 #import "Reflect";
+#import "Code_Format";
 
 #load "procedure_info.jai";
 #load "arrays.jai";
