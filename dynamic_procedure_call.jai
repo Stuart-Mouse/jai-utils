@@ -194,7 +194,7 @@ Dynamic_Callback :: struct {
     // context_modifications:  [] Context_Modification;
     // Context_Modification :: struct {
     //     offset_in_bytes:    int;
-    //     type:               Type;
+    //     type:               *Type_Info;
     //     value_pointer:      *void;
     // }
 }
@@ -204,7 +204,7 @@ call :: (callback: Dynamic_Callback, return_values: ..Any) -> bool {
 }
 
 call :: (callback: Dynamic_Callback, allocator := temp) -> bool, [] Any {
-    type := callback._type_info;
+    type := callback.__type_info;
     
     return_values := NewArray(type.return_types.count, Any,, allocator);
     for type.return_types {
@@ -255,6 +255,16 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
             .expression = argument;
         
         root.(*Code_Cast).target_type.* = .{ type_valued_expression = type_expression };
+        
+        log("%", root.(*Code_Cast).expression.(*Code_Directive_Insert).expression.(*Code_Directive_Code).*);
+        
+        // TODO: I can't figure out how to build an #insert,scope that actually works...
+        //       Seems like the only way to get a Code with the proper scope for the scope redirection is to get it from compiler_get_nodes.
+        // root: *Code_Node = New(Code_Directive_Insert, .{
+        //     expression        = argument,
+        //     scope_redirection = compiler_get_nodes(#code,typed procedure_call_code)
+        // });
+        // if type_expression  root = make_cast(make_type_inst(type_expression), root);
         
         return root;
     }
@@ -309,8 +319,10 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
         
         arguments_array_members := NewArray(procedure_call.arguments_sorted.count, *Code_Node);
         for argument: procedure_call.arguments_sorted {
-            argument_type_expression := compiler_get_nodes(#code ARGUMENT_TYPES[0]);
-            argument_type_expression.(*Code_Binary_Operator).right.(*Code_Literal)._s64 = it_index;
+            argument_type_expression := make_binary_operator(.ARRAY_SUBSCRIPT, 
+                make_ident("ARGUMENT_TYPES"), 
+                make_integer_literal(it_index)
+            );
             
             if argument.kind == {
               case .MAKE_VARARGS;
@@ -340,7 +352,7 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
             }
         }
         
-        arguments_array_literal := make_array_literal(get_type_inst_from_declaration_code(#code dummy: Any), arguments_array_members);
+        arguments_array_literal := make_array_literal(make_type_inst_from_ident("Any"), arguments_array_members);
         // log("arguments_array_literal: %", sprintx(arguments_array_literal));
         return compiler_get_code(arguments_array_literal, null);
     };
@@ -375,23 +387,6 @@ sprintx :: (root: *Code_Node) -> string {
     debug_builder: String_Builder;
     Program_Print.print_expression(*debug_builder, root);
     return builder_to_string(*debug_builder);
-}
-
-get_type_inst_from_declaration :: (decl: *Code_Declaration) -> *Code_Type_Instantiation {
-    assert(decl.kind == .DECLARATION, "decl must be a declaration, but it was %", decl.kind);
-    type_inst := decl.type_inst;
-    if !decl.type_inst {
-        // type_inst := try_infer_type_inst_from_expression(decl.expression);
-        assert(type_inst != null, "Error: Unable to infer type instantiation from expression: %", sprintx(decl.expression,, temp));
-    }
-    return type_inst;
-}
-
-get_type_inst_from_declaration_code :: (decl_code: Code) -> *Code_Type_Instantiation {
-    decl := compiler_get_nodes(decl_code).(*Code_Declaration);
-    assert(decl.kind == .DECLARATION, "decl must be a declaration, but it was %", decl.kind);
-    assert(decl.type_inst != null, "decl must have a type instantiation");
-    return decl.type_inst;
 }
 
 
