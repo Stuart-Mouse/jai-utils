@@ -59,6 +59,49 @@ call_procedure_checked :: ($P: Type, procedure: P, arguments: [] Any, return_val
     
     if !typecheck_procedure_call(PROCEDURE_TYPE_INFO, arguments, return_values)  return false;
     
+    // #insert -> Code {
+    //     block := New(Code_Block);
+    //     block.block_type = .IMPERATIVE;
+        
+    //     statements_to_reserve := PROCEDURE_TYPE_INFO.argument_types;
+    //     statements_to_reserve += PROCEDURE_TYPE_INFO.return_types;
+    //     statements_to_reserve += 1; // for the procedure call itself
+        
+    //     statements: [..] *Code_Node;
+    //     statements.allocator = temp;
+    //     array_reserve(*statements, statements_to_reserve);
+        
+    //     procedure_type_info_ident := make_ident("PROCEDURE_TYPE_INFO");
+    //     argument_types_ident      := make_ident("argument_types");
+    //     return_types_ident        := make_ident("return_types");
+    //     get_type_ident            := make_ident("get_type");
+        
+    //     for PROCEDURE_TYPE_INFO.argument_types {
+    //         // Ta0 :: #run get_type(PROCEDURE_TYPE_INFO.argument_types[0]);
+    //         base_expression := make_binary_operator(procedure_type_info_ident, argument_types_ident); // PROCEDURE_TYPE_INFO.argument_types
+    //         type_info_expression := make_binary_operator(.ARRAY_SUBSCRIPT, base_expression, make_integer_literal(it_index));
+    //         declaration := make_declaration(tprint("Ta%", it_index), 
+    //             expression = make_run(make_procedure_call(get_type_ident, .{ type_info_expression, null })),
+    //             flags = .IS_CONSTANT,
+    //         );
+    //         array_add(*statements, declaration);
+    //     }
+    //     for PROCEDURE_TYPE_INFO.return_types {
+    //         // Tr0 :: #run get_type(PROCEDURE_TYPE_INFO.return_types[0]);
+    //         base_expression := make_binary_operator(procedure_type_info_ident, return_types_ident); // PROCEDURE_TYPE_INFO.return_types
+    //         type_info_expression := make_binary_operator(.ARRAY_SUBSCRIPT, base_expression, make_integer_literal(it_index));
+    //         declaration := make_declaration(tprint("Ta%", it_index), 
+    //             expression = make_run(make_procedure_call(get_type_ident, .{ type_info_expression, null })),
+    //             flags = .IS_CONSTANT,
+    //         );
+    //         array_add(*statements, declaration);
+    //     }
+        
+    //     // TODO: modify procedure type header to remove varargs
+        
+    //     block.statements = statements;    
+    // }
+    
     #insert -> string {
         builder: String_Builder;
         
@@ -69,10 +112,10 @@ call_procedure_checked :: ($P: Type, procedure: P, arguments: [] Any, return_val
               or allowed casting between the two to be an implicitly comptime operation. 
         */
         for PROCEDURE_TYPE_INFO.argument_types {
-            print(*builder, "Ta%1 :: #run (*PROCEDURE_TYPE_INFO.argument_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
+            print(*builder, "Ta%1 :: #run get_type(PROCEDURE_TYPE_INFO.argument_types[%1]); // %\n", it_index, as_type(it));
         }
         for PROCEDURE_TYPE_INFO.return_types {
-            print(*builder, "Tr%1 :: #run (*PROCEDURE_TYPE_INFO.return_types[%1]).(*Type).*; // %\n", it_index, as_type(it));
+            print(*builder, "Tr%1 :: #run get_type(PROCEDURE_TYPE_INFO.return_types[%1]); // %\n", it_index, as_type(it));
         }
         
         
