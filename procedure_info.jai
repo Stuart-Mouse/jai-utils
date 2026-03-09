@@ -65,14 +65,14 @@ get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_ti
 
 Procedure_Info :: struct {
     __type:         Type;
+    #overlay(__type) using __type_info: *Type_Info_Procedure;
+    
     arguments:      [] Argument;
     returns:        [] Argument;
     
     // TODO: include pointer to procedure?
     call_wrapper:   Procedure_Call_Wrapper;
-    
-    #overlay(__type) using __type_info: *Type_Info_Procedure;
-    
+     
     // TODO: maybe we should have separate arrays for each rather than an array of structs
     //       main reason being that we already have argument/return types in a separate array in _type_info
     Argument :: struct {
@@ -106,55 +106,29 @@ get_procedure_info :: ($procedure_expression: Code, $scope := #caller_code) -> P
         return types;
     }();
     
-    #insert -> string {
-        builder: String_Builder;
-        
+    arguments, returns :: #run () -> ([] Procedure_Info.Argument, [] Procedure_Info.Argument) {
         root := compiler_get_nodes(procedure_expression);
         procedure_header := get_procedure_header(root);
         
-        // TODO: try to detect when procedure contains body and cannot properly be inserted, and provide a better error message.
-        
-        if procedure_header == null {
-            append(*builder, "Warning: Unable to resolve procedure header from expression: ");
-            Program_Print.print_expression(*builder, root);
-            log(builder_to_string(*builder));
-            return "return .{};";
-        }
-        
-        assert(procedure_header.procedure_flags & .POLYMORPHIC == 0, "Cannot get procedure info for a polymorphic procedure.");
-        
-        // generate arguments array
-        {
-            append(*builder, "arguments :: Procedure_Info.Argument.[\n");
-            for procedure_header.arguments {
-                print(*builder, "    .{ name = \"%\", ", it.name);
-                
-                // TODO: make flags printing less hacky
-                append(*builder, "flags = .NONE");
-                if it.expression {
-                    append(*builder, " | .HAS_DEFAULT_VALUE");
-                }
-                if it.type_inst && (it.type_inst.inst_flags & .VARARGS) {
-                    append(*builder, " | .IS_VARARGS");
-                }
-                append(*builder, ", ");
-                
-                append(*builder, "},\n");
+        arguments := NewArray(procedure_header.arguments.count, Procedure_Info.Argument,, temp);
+        for procedure_header.arguments {
+            flags: Procedure_Info.Argument.Flags;
+            if it.expression {
+                flags |= .HAS_DEFAULT_VALUE;
             }
-            append(*builder, "];\n");
-        }
-        
-        // generate return values array
-        {
-            append(*builder, "returns :: Procedure_Info.Argument.[\n");
-            for procedure_header.returns {
-                print(*builder, "    .{ name = \"%\" },\n", it.name);
+            if it.type_inst && (it.type_inst.inst_flags & .VARARGS) {
+                flags |= .IS_VARARGS;
             }
-            append(*builder, "];\n");
+            arguments[it_index] = .{ it.name, flags };
         }
         
-        return builder_to_string(*builder);
-    }
+        returns := NewArray(procedure_header.returns.count, Procedure_Info.Argument,, temp);
+        for procedure_header.returns {
+            returns[it_index] = .{ it.name, .NONE };
+        }
+        
+        return arguments, returns;
+    }();
     
     get_default_argument_value :: (index: int) -> bool, Any {
         #insert -> Code {
