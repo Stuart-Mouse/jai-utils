@@ -226,6 +226,8 @@ call_procedure_unchecked :: ($P: Type, procedure: P, arguments: [] *void, return
 
 Dynamic_Callback :: struct {
     using procedure_info:   *Procedure_Info;
+    
+    call_wrapper:           Procedure_Call_Wrapper;
     procedure_pointer:      *void;
     
     argument_values:        [] Any;
@@ -319,7 +321,9 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
         return compiler_get_code(procedure_call, procedure_call_code);
     }
     
-    PROCEDURE_INFO      :: #run get_procedure_info(PROCEDURE, procedure_call_code);
+    // TODO: This is kinda silly. We should not have to dereference the result of get_procedure_info here, since the pointer should point to constant data.
+    //       Maybe we have to do something to make the compiler actually add this data to constant storage though...
+    PROCEDURE_INFO      :: #run get_procedure_info(PROCEDURE, procedure_call_code).*;
     PROCEDURE_TYPE      :: type_of(PROCEDURE);
     PROCEDURE_TYPE_INFO :: type_info(PROCEDURE_TYPE);
     
@@ -339,10 +343,10 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
     }();
     
     callback := Dynamic_Callback.{
-        procedure_info     = *PROCEDURE_INFO,
-        procedure_pointer  = xx PROCEDURE,
+        procedure_info      = *PROCEDURE_INFO,
+        call_wrapper        = xx #bake_arguments call_procedure_checked(P = PROCEDURE_TYPE),
+        procedure_pointer   = xx PROCEDURE,
     };
-    
     
     arguments_values_array_size := PROCEDURE_INFO.arguments.count * size_of(Any);
     allocation_size := size_of(Dynamic_Callback) + arguments_values_array_size;
