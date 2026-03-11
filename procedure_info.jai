@@ -30,8 +30,13 @@
     TODO: eventually move this to the Reflect module
 */
 
+
+/*
+    This is a helper function to track down a procedure header given some general procedure-typed expression.
+    There are probably some edge cases I am missing here so if you pass something that seems like it should work, but it doesn't then let me know. (@u0 on Discord)
+*/
 get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_time {
-    if !node  return null;
+    if node == null  return null;
     
     if node.kind == {
       case .PROCEDURE_HEADER;
@@ -45,8 +50,27 @@ get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_ti
         bake := node.(*Code_Directive_Bake);
         return get_procedure_header(bake.procedure_call);
         
+      case .TYPE_INSTANTIATION;
+        type_inst := node.(*Code_Type_Instantiation);
+        if type_inst.type_valued_expression {
+            result := get_procedure_header(type_inst.type_valued_expression);
+            if result  return result;
+        }
+        // TODO: other cases?
+        
+      case .BINARY_OPERATOR;
+        binary_operator := node.(*Code_Binary_Operator);
+        if binary_operator.operator_type == {
+          case #char ".";
+            return get_procedure_header(binary_operator.right);
+        }
+        
       case .DECLARATION;
         declaration := node.(*Code_Declaration);
+        if declaration.type_inst {
+            result := get_procedure_header(declaration.type_inst);
+            if result  return result;
+        }
         return get_procedure_header(declaration.expression);
         
       case .DIRECTIVE_INSERT;
@@ -60,18 +84,22 @@ get_procedure_header :: (node: *Code_Node) -> *Code_Procedure_Header #compile_ti
             return get_procedure_header(call.resolved_procedure_expression);
         // }
     }
+    
     return null;
 }
 
 Procedure_Info :: struct {
-    __type:         Type;
+    // NOTE: We do this funky overlay thing so that we can return this struct as a constant from a #run, 
+    //       but you can still access the type info directly through the using on the type info.
+    //       Note also that the member 'type' here refers to the Type_Info_Tag in the using'd type info!
+    __type: Type;
     #overlay(__type) using __type_info: *Type_Info_Procedure;
     
     arguments:      [] Argument;
     returns:        [] Argument;
     
-    // TODO: maybe we should have separate arrays for each rather than an array of structs
-    //       main reason being that we already have argument/return types in a separate array in _type_info
+    // TODO: Maybe we should have separate arrays for each rather than an array of structs,
+    //       main reason being that we already have argument/return types in a separate arrays in __type_info.
     Argument :: struct {
         name:   string;
         flags:  Flags;
@@ -90,26 +118,47 @@ Procedure_Info :: struct {
 
 /*
     Generates a constant Procedure_Info and returns a pointer to that struct.
-    
+    This could certainly use some improvement and return other information about a procedure that would be useful to know at runtime. 
+    The implementation here is by no means complete, but 
 */
-get_procedure_info :: ($procedure_expression: Code, scope := #caller_code, loc := #caller_location) -> *Procedure_Info #expand {
-    PROCEDURE           :: #insert procedure_expression;
+get_procedure_info :: ($PROCEDURE_EXPRESSION: Code, $SCOPE := #caller_code, $LOC := #caller_location) -> *Procedure_Info #expand {
+    PROCEDURE           :: #insert PROCEDURE_EXPRESSION;
     PROCEDURE_TYPE      :: type_of(PROCEDURE);
     PROCEDURE_TYPE_INFO :: type_info(PROCEDURE_TYPE);
     
     // Dumping all the argument types here is necessary for our code generation below.
-    ARGUMENT_TYPE_COUNT :: #run PROCEDURE_TYPE_INFO.argument_types.count;
-    ARGUMENT_TYPES :: #run () -> [ARGUMENT_TYPE_COUNT] Type {
-        types: [ARGUMENT_TYPE_COUNT] Type;
+    ARGUMENT_TYPES :: #run () -> [] Type {
+        types := NewArray(PROCEDURE_TYPE_INFO.argument_types.count, Type,, temp);
         for PROCEDURE_TYPE_INFO.argument_types {
             types[it_index] = get_type(it);
         }
         return types;
     }();
     
-    ARGUMENTS, RETURNS, NOTES :: #run () -> ([] Procedure_Info.Argument, [] Procedure_Info.Argument, [] string) {
-        root := compiler_get_nodes(procedure_expression);
+    /*
+        This #run directive does the bulk of the work in this macro. 
+        In addition to generating the basic data arrays for arguments, return values, and notes,
+        it also generates the Procedure_Info's internal `get_default_argument` procedure.
+        
+        TODO: I should say some more about this get_default_argument procedure to explain 
+              why we need to generate it with code nodes rather than as a string...
+    */
+    ARGUMENTS, RETURNS, NOTES, GET_DEFAULT_ARGUMENT_CODE :: #run -> [] Procedure_Info.Argument, [] Procedure_Info.Argument, [] string, Code {
+        root := compiler_get_nodes(PROCEDURE_EXPRESSION);
         procedure_header := get_procedure_header(root);
+        
+        if procedure_header == null {
+            builder: String_Builder;
+            append(*builder, "Warning: Unable to resolve procedure header from expression: ");
+            Program_Print.print_expression(*builder, root);
+            
+            error_string := builder_to_string(*builder,, temp);
+            compiler_report(error_string, loc = LOC);
+        }
+        
+        if procedure_header.procedure_flags & .POLYMORPHIC {
+            compiler_report("Cannot get procedure info for a polymorphic procedure. Try using #procedure_of_call or #bake_arguments to monomorph the procedure before passing it to get_procedure_info.", loc = LOC);
+        }
         
         arguments := NewArray(procedure_header.arguments.count, Procedure_Info.Argument,, temp);
         for procedure_header.arguments {
@@ -133,46 +182,33 @@ get_procedure_info :: ($procedure_expression: Code, scope := #caller_code, loc :
             notes[it_index] = it.text;
         }
         
-        return arguments, returns, notes;
-    }();
-    
-    get_default_argument_value :: (index: int, provided_storage := null) -> bool, Any {
-        #insert -> Code {
-            root := compiler_get_nodes(procedure_expression);
-            procedure_header := get_procedure_header(root);
-            
-            if procedure_header == null {
-                builder: String_Builder;
-                append(*builder, "Warning: Unable to resolve procedure header from expression: ");
-                Program_Print.print_expression(*builder, root);
-                
-                error_string := builder_to_string(*builder);
-                assert(false, error_string);
-            }
-            
-            if procedure_header.procedure_flags & .POLYMORPHIC {
-                compiler_report("Cannot get procedure info for a polymorphic procedure. Try using #procedure_of_call or #bake_arguments to monomorph the procedure before passing it to get_procedure_info.", loc = loc);
-            }
+        
+        get_default_argument_value_procedure_code := ifx 1 {
+            push_allocator(temp);
             
             cases: [..] *Code_Case;
-            cases.allocator = temp;
             array_reserve(*cases, procedure_header.arguments.count);
+            
+            // we reuse these nodes for each argument
+            ident_ARGUMENT_TYPES := make_ident("ARGUMENT_TYPES");
             
             for procedure_header.arguments {
                 if it.expression {
-                    argument_type_expression := compiler_get_nodes(#code ARGUMENT_TYPES[0]);
-                    argument_type_expression.(*Code_Binary_Operator).right.(*Code_Literal)._s64 = it_index;
-                    
                     code_case := New(Code_Case);
                     code_case.condition = make_integer_literal(it_index);
                     
-                    code_case.then_block = compiler_get_nodes(#code {
+                    // TODO: This could make for a good test case for the code formatter.
+                    //       We will need a new mechanism to insert the integer literal, maybe we add an explicit capture system and that solves our scoping issue as well...
+                    
+                    then_block_format := #code {
                         ret := New(void, initialized = false);
-                        ret.* = #insert,scope(scope) #code 0;
+                        ret.* = #insert,scope(SCOPE) #code 0;
                         return true, ret.*;
-                    }).(*Code_Block);
+                    };
+                    code_case.then_block = compiler_get_nodes(then_block_format).(*Code_Block);
                     
                     // replace `void` with actual argument type
+                    argument_type_expression := make_binary_operator(.ARRAY_SUBSCRIPT, ident_ARGUMENT_TYPES, make_integer_literal(it_index));
                     code_case.then_block
                         .statements[0].(*Code_Declaration)
                         .expression.(*Code_Procedure_Call)
@@ -183,7 +219,7 @@ get_procedure_info :: ($procedure_expression: Code, scope := #caller_code, loc :
                     && it.expression.(*Code_Directive_Location).is_caller_location {
                         code_case.then_block
                             .statements[1].(*Code_Binary_Operator)
-                            .right = compiler_get_nodes(#code #location(procedure_expression));
+                            .right = compiler_get_nodes(#code #location(PROCEDURE_EXPRESSION));
                     } else {
                         // replace `#code 0` in insert with it.expression
                         code_case.then_block
@@ -197,29 +233,26 @@ get_procedure_info :: ($procedure_expression: Code, scope := #caller_code, loc :
                 }
             }
             
-            code_if := New(Code_If);
-            code_if.if_flags = .IS_SWITCH_STATEMENT;
+            switch_statement := make_if_case(make_ident("index"), cases);
+            default_return_statement := compiler_get_nodes(#code return false, Any.{});
+            body_block := make_block(switch_statement, default_return_statement);
             
-            code_if.condition = New(Code_Ident);
-            code_if.condition.(*Code_Ident).name = "index";
+            // We use the procedure header from the declaration of Procedure_Info.get_default_argument_value so that we don't have to build it manually here.
+            // Maybe this is an overly lazy approach, but it's also just kind of cool to show that this can be done.
+            exemplar_header := get_procedure_header(
+                compiler_get_nodes(code_of(Procedure_Info.get_default_argument_value))
+            );
+            header := make_procedure_header(exemplar_header.*, body_block);
             
-            code_if.then_block = ifx 1 {
-                block := New(Code_Block);
-                block.block_type       = .IMPERATIVE;
-                block.owning_statement = code_if;
-                block.statements       = cast,force([]*Code_Node) cases;
-                for cases {
-                    it.then_block.owning_statement = it.then_block.statements[0];
-                    it.then_block.parent = block;
-                }
-                block;
-            };
-            
-            return compiler_get_code(code_if);
+            // And the final result of this massive ifx...
+            make_declaration("get_default_argument_value", null, header, .IS_CONSTANT);
         }
         
-        return false, Any.{};
-    }
+        // print_code(get_default_argument_value_procedure_code);
+        return arguments, returns, notes, compiler_get_code(get_default_argument_value_procedure_code);
+    };
+    
+    #insert GET_DEFAULT_ARGUMENT_CODE;
     
     PROCEDURE_INFO :: Procedure_Info.{
         __type                      = PROCEDURE_TYPE, 
@@ -232,15 +265,15 @@ get_procedure_info :: ($procedure_expression: Code, scope := #caller_code, loc :
     return *PROCEDURE_INFO;
 }
 
-// get_default_argument_value :: (info: Procedure_Info, argument_name: string) -> bool, Any {
-//     for info.arguments {
-//         if it.name == argument_name { 
-//             if !(it.flags & .HAS_DEFAULT_VALUE)  return false, Any.{};
-//             return true, it.get_default();
-//         }
-//     }
-//     return false, Any.{};
-// }
+get_default_argument_value :: (info: Procedure_Info, argument_name: string) -> bool, Any {
+    for info.arguments {
+        if it.name == argument_name { 
+            if !(it.flags & .HAS_DEFAULT_VALUE)  return false, Any.{};
+            return true, it.get_default();
+        }
+    }
+    return false, Any.{};
+}
 
 
 #scope_module
