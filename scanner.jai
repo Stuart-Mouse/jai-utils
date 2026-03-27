@@ -74,11 +74,13 @@ try_lex_number :: (using scanner: *Scanner) -> string {
             }
         }
         
-        while (is_digit(file[0]) || file[0] == "_") && advance(scanner) {};
-        
-        if file.count > 1 && file[0] == "." && (is_digit(file[1]) || file[1] == "_") {
-            if advance(scanner) {
-                while (is_digit(file[0]) || file[0] == "_") && advance(scanner) {};
+        if file {
+            while (is_digit(file[0]) || file[0] == "_") && advance(scanner) {};
+            
+            if file.count > 1 && file[0] == "." && (is_digit(file[1]) || file[1] == "_") {
+                if advance(scanner) {
+                    while (is_digit(file[0]) || file[0] == "_") && advance(scanner) {};
+                }
             }
         }
         
