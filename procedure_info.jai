@@ -149,7 +149,7 @@ get_procedure_info :: ($PROCEDURE_EXPRESSION: Code, $SCOPE := #caller_code, $LOC
         
         if procedure_header == null {
             builder: String_Builder;
-            append(*builder, "Warning: Unable to resolve procedure header from expression: ");
+            append(*builder, "Unable to resolve procedure header from expression: ");
             Program_Print.print_expression(*builder, root);
             
             error_string := builder_to_string(*builder,, temp);
