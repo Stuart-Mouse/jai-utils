@@ -35,10 +35,17 @@ for_expansion :: (array: *Static_Array, body: Code, flags: For_Flags) #expand {
     }
 }
 
-push :: inline (array: *Static_Array, elem: array.T) -> bool {
+push :: inline (array: *Static_Array, elem: array.T) {
     assert(array.count < array.capacity);
     array.data[array.count] = elem;
     array.count += 1;
+}
+
+try_push  :: inline (array: *Static_Array, elem: array.T) {
+    if array.count >= array.capacity  return false;
+    array.data[array.count] = elem;
+    array.count += 1;
+    return true;
 }
 
 pop :: inline (array: *Static_Array) -> array.T {
@@ -46,6 +53,19 @@ pop :: inline (array: *Static_Array) -> array.T {
     defer array.count -= 1;
     return array.data[array.count];
 }
+
+try_pop :: inline (array: *Static_Array) -> array.T {
+    if array.count <= 0  return false;
+    defer array.count -= 1;
+    return array.data[array.count];
+    return true;
+}
+
+reset :: inline (array: *Static_Array) {
+    array.count = 0;
+}
+
+// TODO: unordered_remove_by_index
 
 reflect_static_array :: (a: Any) -> count_ptr: *int, data: *u8, capacity: int, element_type: *Type_Info {
     assert(is_static_array(a.type));
