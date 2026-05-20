@@ -13,7 +13,11 @@ Slot_Array :: struct(T: Type, capacity: int) {
 get_first_empty_slot :: (array: *Slot_Array, set_occupied := false) -> *array.T, int {
     for :only_unset array.occupied {
         array.occupied[it_index] = set_occupied;
-        return *array.slots[it_index], it_index; 
+        
+        // NOTE: we will always re-init the returned element
+        element := *array.slots[it_index];
+        element.* = .{};
+        return element, it_index; 
     }
     return null, -1;
 }
