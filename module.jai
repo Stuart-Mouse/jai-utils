@@ -133,7 +133,11 @@ delerp :: (a: float64, b: float64, val: float64) -> float64 {
 }
 
 modulo :: (n: $T, d: T) -> T #modify { return T.(*Type_Info).type == .INTEGER; } {
-    return n % d + ifx n < 0 then d else 0;
+    r := n % d;
+    if (r > 0 && d < 0) || (r < 0 && d > 0) {
+        r += d;
+    }
+    return r;
 }
 
 // copied from Hash_Table module...
