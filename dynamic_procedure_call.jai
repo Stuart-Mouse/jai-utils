@@ -292,25 +292,12 @@ make_dynamic_callback :: ($procedure_call_code: Code, $copy_any_values := true, 
     // NOTE: Technically, we should not be able to cast to struct types, but compiler seems to be ok with it here, 
     //       probably because it is already that type. But noting this since it could potentially be a concern later on if we see issues.
     make_argument_inserter :: (argument: *Code_Node, type_expression: *Code_Node) -> *Code_Node #compile_time {
-        root := compiler_get_nodes(#code (#insert,scope(procedure_call_code) #code 0).(int));
-        
-        root.(*Code_Cast)
-            .expression.(*Code_Directive_Insert)
-            .expression.(*Code_Directive_Code)
-            .expression = argument;
-        
-        root.(*Code_Cast).target_type.* = .{ type_valued_expression = type_expression };
-        
-        log("%", root.(*Code_Cast).expression.(*Code_Directive_Insert).expression.(*Code_Directive_Code).*);
-        
-        // TODO: I can't figure out how to build an #insert,scope that actually works...
-        //       Seems like the only way to get a Code with the proper scope for the scope redirection is to get it from compiler_get_nodes.
-        // root: *Code_Node = New(Code_Directive_Insert, .{
-        //     expression        = argument,
-        //     scope_redirection = compiler_get_nodes(#code,typed procedure_call_code)
-        // });
-        // if type_expression  root = make_cast(make_type_inst(type_expression), root);
-        
+        // #insert,scope(procedure_call_code) #code <argument>
+        root: *Code_Node = New(Code_Directive_Insert, .{
+            expression        = make_directive_code(argument),
+            scope_redirection = make_ident("procedure_call_code"),
+        });
+        if type_expression  root = make_cast(make_type_inst(type_expression), root);
         return root;
     }
     

@@ -19,6 +19,7 @@
 #load "fixed_bit_array.jai";
 #load "slot_array.jai";
 #load "dynamic_procedure_call.jai";
+// #load "closure.jai";
 
 
 // ========== General Purpose ==========
@@ -146,7 +147,7 @@ next_power_of_two :: inline (x: int) -> int {
     // There is probably something in Hacker's Delight for this.
     assert(x != 0);
     p := 1;
-    while x > p p += p;
+    while x >= p p += p;
     return p;
 }
 
