@@ -304,10 +304,9 @@ string_to_u64 :: (text: string, base: u64 = 10) -> result: u64, success: bool, r
     // TODO: We should probably handle other higher bases, such as base32 and base64. Could maybe refer to Odin's implementation for ideas.
     if base == 16 {
         while cursor < _text.count {
-            defer cursor += 1;
             c := _text[cursor];
             
-            if parsed_digit && c == "_"  continue;
+            if parsed_digit && c == "_"  { cursor += 1; continue; }
             
             digit: u8 = ---;
             if      is_digit(c)              then digit = c - "0";
@@ -318,13 +317,14 @@ string_to_u64 :: (text: string, base: u64 = 10) -> result: u64, success: bool, r
             
             sum *= base;
             sum += digit.(u64);
+            
+            cursor += 1;
         }
     } else {
         while cursor < _text.count {
-            defer cursor += 1;
             c := _text[cursor];
             
-            if parsed_digit && c == "_"  continue;
+            if parsed_digit && c == "_" { cursor += 1; continue; }
             
             if !is_digit(c) break;
             
@@ -343,11 +343,17 @@ string_to_u64 :: (text: string, base: u64 = 10) -> result: u64, success: bool, r
                 log("Error: arithmetic overflow in string_to_u64!");
                 return 0, false, "";
             }
+            
+            cursor += 1;
         }
     }
     
     success := parsed_digit;
-    if success then advance(*_text, cursor);
+    if success then {
+        log("before: '%'", _text);
+        advance(*_text, cursor);
+        log("after:  '%'", _text);
+    }
     return sum, success, _text;
 }
 
