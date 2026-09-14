@@ -349,11 +349,7 @@ string_to_u64 :: (text: string, base: u64 = 10) -> result: u64, success: bool, r
     }
     
     success := parsed_digit;
-    if success then {
-        log("before: '%'", _text);
-        advance(*_text, cursor);
-        log("after:  '%'", _text);
-    }
+    if success then advance(*_text, cursor);
     return sum, success, _text;
 }
 
