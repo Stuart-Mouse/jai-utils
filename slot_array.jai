@@ -54,7 +54,7 @@ is_valid_index :: inline (array: Slot_Array, index: int) -> bool {
     return index >= 0 && index < array.capacity;
 }
 
-index_is_occupied :: inline (array: Slot_Array, index: int) -> bool {
+is_index_occupied :: inline (array: Slot_Array, index: int) -> bool {
     return is_valid_index(array, index) && array.occupied[index];
 }
 
@@ -68,13 +68,18 @@ get_count_occupied :: (array: Slot_Array) -> int {
     return count;
 }
 
-set_index_occupied :: inline (array: *Slot_Array, index: int, $$occupied: bool) {
+set_index_occupied :: (array: *Slot_Array, index: int, $$occupied := true) {
     array.occupied[index] = occupied;
 }
 
-set_index_occupied :: inline (array: *Slot_Array, element: *array.T, $$occupied: bool) {
+remove_by_index :: (array: *Slot_Array, index: int) {
+    array.occupied[index] = false;
+}
+
+// TODO: Should probably not fail silently.
+remove_element :: (array: *Slot_Array, element: *array.T) {
     ok, index := get_element_index(array, element);
-    if ok  set_index_occupied(array, index, occupied);
+    if ok  remove_by_index(array, index);
 }
 
 for_expansion :: (array: *Slot_Array, body: Code, flags: For_Flags) #expand {
@@ -89,13 +94,21 @@ for_expansion :: (array: *Slot_Array, body: Code, flags: For_Flags) #expand {
     }
 }
 
-operator[] :: (array: *Slot_Array, index: int) -> array.T {
-    return array.slots[index];
+operator [] :: (array: *Slot_Array, index: int) -> array.T, bool {
+    occupied := is_index_occupied(array, index);
+    return array.slots[index], occupied;
 }
 
-operator*[] :: (array: *Slot_Array, index: int) -> *array.T {
-    return *array.slots[index];
+operator *[] :: (array: *Slot_Array, index: int) -> *array.T, bool {
+    occupied := is_index_occupied(array, index);
+    return *array.slots[index], occupied;
 }
+
+operator []= :: (array: *Slot_Array, index: int, value: array.T) {
+    array.occupied[index] = true;
+    array.slots[index] = value;
+}
+
 
 clone_to_view :: (array: Slot_Array) -> [] array.T {
     count := get_count_occupied(array);
