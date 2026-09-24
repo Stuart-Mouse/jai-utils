@@ -50,13 +50,13 @@ array_contains_all :: (array: []$T, elems: ..T) {
 array_add_any :: inline (array: Any) -> Any {
     assert(array.type.type == .ARRAY);
     
-    ti_array := array.type.(*Type_Info_Array);
-    array    := array.value_pointer.(*Resizable_Array);
+    array_info := array.type.(*Type_Info_Array);
+    array      := array.value_pointer.(*Resizable_Array);
     
     // maybe grow array
     if array.count >= array.allocated {
         reserve := max(2 * array.allocated, 8);
-        array_reserve(array, reserve, ti_array.element_type.runtime_size);
+        array_reserve(array, reserve, array_info.element_type.runtime_size);
     }
      
     defer array.count += 1; // increment after return
@@ -69,15 +69,15 @@ array_add_any_at_index :: (array: Any, index: int) -> Any {
         return Any.{};
     }
     
-    ti_array  := array.type.(*Type_Info_Array);
-    raw_array := array.value_pointer.(*Resizable_Array);
-    new_cap   := max(next_power_of_two(index + 1), 8);
+    array_info := array.type.(*Type_Info_Array);
+    raw_array  := array.value_pointer.(*Resizable_Array);
+    new_cap    := max(next_power_of_two(index + 1), 8);
     
-    array_reserve(raw_array, new_cap, ti_array.element_type.runtime_size);
+    array_reserve(raw_array, new_cap, array_info.element_type.runtime_size);
     
     raw_array.count = max(raw_array.count, index + 1);
     
-    return Any.{ ti_array.element_type, raw_array.data + (index * ti_array.element_type.runtime_size) };
+    return Any.{ array_info.element_type, raw_array.data + (index * array_info.element_type.runtime_size) };
 }
 
 
