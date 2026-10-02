@@ -16,22 +16,30 @@ to_c_string :: inline (s: *Static_String) -> *u8 {
     return s.data.data;
 }
 
-to_static_string :: inline (src: string, $capacity: int) -> Static_String(capacity), bool {
+to_static_string :: inline (src: string, $capacity: int) -> Static_String(capacity), /*truncated:*/ bool {
     dst: Static_String(capacity);
-    ok := copy_from_string(*dst, src);
-    return dst, ok;
+    truncated := copy_from_string(*dst, src);
+    return dst, truncated;
 }
 
-copy_from_string :: inline (dst: *Static_String, src: string) -> bool {
-    if src.count >= dst.capacity  return false;
-    dst.count = src.count;
+copy_from_string :: inline (dst: *Static_String, src: string) -> (truncated: bool) {
+    truncated     := src.count >= dst.capacity;
+    count_to_copy := min(src.count, dst.capacity - 1);
+    
+    dst.count = count_to_copy;
     memcpy(*dst.data, src.data, dst.count);
     dst.data[dst.count] = 0;
-    return true;
+    return truncated;
 }
 
 copy_to_string :: inline (s: *Static_String) -> string {
     return copy_string(string.{ s.count, s.data.data });
+}
+
+ensure_null_terminated :: (s: *Static_String) -> (last_byte_overwritten: bool) {
+    last_byte_overwritten := s.count == s.capacity;
+    s.data[s.count-1] = 0;
+    return last_byte_overwritten;
 }
 
 // NOTE: You can technically index the null-terminator directly here and not get an index out of bounds error. Would anyone care though? 
